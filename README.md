@@ -1,166 +1,170 @@
 # 🔥 EGX Incendies
 
-Une carte légère et portable pour visualiser les **détections thermiques satellites autour de Bordeaux**, en Gironde et dans les Landes.
+Carte citoyenne, gratuite et mobile-first pour consulter les **détections thermiques satellites récentes autour de la ville de votre choix**.
 
-L'application fonctionne directement dans un navigateur, sur téléphone comme sur ordinateur. Elle s'appuie sur les données publiques **NASA FIRMS** et sur un fond de carte **OpenStreetMap**.
+👉 Application : **https://elgrandexu.github.io/EGX_Incendies/**
 
 > [!IMPORTANT]
-> Cette application n'est pas un service officiel d'alerte, d'évacuation ou de secours. Une détection satellite peut correspondre à un incendie, mais aussi à un brûlage agricole, un site industriel ou une autre anomalie thermique. En cas de danger immédiat, appelez le **112** ou le **18**.
+> Cette application n'est pas un service officiel d'alerte, d'évacuation ou de secours. En cas de danger immédiat, appelez le **112** ou le **18** et suivez les consignes des autorités locales.
 
-## À quoi sert l'application ?
+## Démarrage rapide — 3 étapes
 
-Elle permet de :
+### 1. Obtenir une clé gratuite NASA FIRMS
 
-- voir les détections thermiques récentes autour de Bordeaux ;
-- distinguer les détections selon leur ancienneté ;
-- choisir un rayon de 50 à 250 km ;
-- consulter les dernières détections et leur distance par rapport à Bordeaux ;
-- observer une tendance temporelle grâce aux zones colorées ;
-- actualiser automatiquement les données toutes les 10 minutes.
+Rendez-vous sur la page officielle :
 
-Les couleurs correspondent à l'âge approximatif des détections :
+**https://firms.modaps.eosdis.nasa.gov/api/map_key/**
 
-- **rouge** : moins de 3 heures ;
-- **orange** : entre 3 et 12 heures ;
-- **jaune** : entre 12 et 24 heures ;
-- **bleu** : entre 24 et 72 heures.
+1. Entrez votre adresse e-mail.
+2. Ouvrez le message envoyé par la NASA.
+3. Copiez la clé appelée `MAP_KEY`.
 
-## Utilisation la plus simple
+### 2. Ouvrir l'application
 
-### 1. Ouvrir l'application
+Accédez à :
 
-Ouvrez le fichier `index.html` dans un navigateur récent, ou utilisez la version GitHub Pages lorsque celle-ci est activée.
+**https://elgrandexu.github.io/EGX_Incendies/**
 
-### 2. Regarder la carte
+L'application fonctionne sur téléphone, tablette et ordinateur, sans installation.
 
-Dans de nombreux cas, l'application essaie d'abord d'utiliser les flux publics NASA FIRMS Europe sans demander de clé.
+### 3. Enregistrer la clé
 
-Vous pouvez :
+1. Ouvrez le menu **☰ Réglages**.
+2. Collez la clé dans **Clé NASA FIRMS**.
+3. Appuyez sur **Enregistrer**.
 
-- déplacer la carte avec le doigt ou la souris ;
-- utiliser `+` et `−` pour zoomer ;
-- utiliser le bouton `⌂` pour revenir sur Bordeaux ;
-- appuyer sur `↻` pour actualiser les données ;
-- choisir le rayon et la période dans **Fenêtre d'observation**.
-
-### 3. Ajouter une clé NASA FIRMS si nécessaire
-
-Si les données ne se chargent pas, ou si vous souhaitez utiliser directement l'API officielle NASA FIRMS :
-
-1. Rendez-vous sur la page officielle :
-   **https://firms.modaps.eosdis.nasa.gov/api/map_key/**
-2. Entrez votre adresse e-mail.
-3. Consultez votre boîte mail.
-4. Copiez la clé reçue, appelée `MAP_KEY`.
-5. Dans l'application, ouvrez **Sources et fonctionnement**.
-6. Collez la clé dans le champ **Clé NASA FIRMS facultative**.
-7. Appuyez sur **Utiliser cette clé**.
-
-La clé est conservée uniquement dans la session du navigateur. Elle n'est ni publiée dans le dépôt, ni envoyée à un autre service que la NASA.
+La clé reste enregistrée uniquement dans le navigateur de l'appareil utilisé. Elle n'est pas incluse dans le dépôt GitHub.
 
 > [!CAUTION]
-> Ne publiez jamais votre clé personnelle directement dans le code source, dans une capture d'écran, dans un commit GitHub ou dans un message public.
+> Ne publiez jamais votre clé dans un commit, une capture d'écran ou un message public.
 
-## Comprendre ce qui est affiché
+## Utiliser la carte
 
-### Un point coloré
+### Changer de ville
 
-Un point correspond à une anomalie thermique détectée par un satellite NASA, notamment VIIRS ou MODIS.
+1. Ouvrez **☰ Réglages**.
+2. Saisissez une ville : `Marseille`, `Nice`, `Madrid`, etc.
+3. Appuyez sur **Rechercher**.
+4. Sélectionnez le bon résultat.
+5. Appuyez sur **Utiliser cette ville**.
 
-Cela ne signifie pas automatiquement qu'un incendie de forêt est confirmé à cet endroit.
+La carte, les distances et le vent sont alors recalculés autour de cette ville.
 
-### Une zone colorée en pointillés
+### Modifier la zone observée
 
-La zone relie des détections proches observées pendant une même période. Elle aide à visualiser une tendance possible dans le temps.
+Dans **Zone observée**, choisissez :
 
-Cette zone est une **estimation visuelle produite par l'application**. Ce n'est pas le périmètre officiel du feu et ce n'est pas une prévision de propagation.
+- un rayon de **50, 100, 150 ou 250 km** ;
+- un historique de **24, 48 ou 72 heures**.
 
-### « Aucune détection »
+### Se déplacer sur la carte
 
-Cela peut signifier :
+- glissez avec le doigt ou la souris pour vous déplacer ;
+- utilisez `+` et `−` pour zoomer ;
+- utilisez `⌂` pour revenir sur la ville sélectionnée ;
+- utilisez `↻` pour actualiser les données.
 
-- qu'aucune anomalie thermique n'a été détectée dans la zone choisie ;
+Les données sont également actualisées automatiquement toutes les 10 minutes lorsque l'application reste ouverte.
+
+## Comprendre les informations affichées
+
+### Couleur des détections
+
+- 🔴 **rouge** : moins de 3 heures ;
+- 🟠 **orange** : entre 3 et 12 heures ;
+- 🟡 **jaune** : entre 12 et 24 heures ;
+- 🔵 **bleu** : entre 24 et 72 heures.
+
+### Points colorés
+
+Chaque point représente une anomalie thermique repérée par les instruments satellites VIIRS ou MODIS.
+
+Une détection peut correspondre à un incendie, mais aussi à un brûlage agricole, un site industriel ou une autre source de chaleur.
+
+### Zones colorées en pointillés
+
+Elles relient des détections proches observées pendant une même période afin de montrer une tendance visuelle.
+
+Elles ne représentent **ni un périmètre officiel, ni une prévision de propagation**.
+
+### Indicateurs en haut de l'écran
+
+L'application affiche :
+
+- le nombre de détections dans la zone choisie ;
+- l'âge de la détection la plus récente ;
+- la distance de la détection la plus proche ;
+- la vitesse et la direction du vent actuel.
+
+Le panneau de réglages précise également les rafales estimées.
+
+## « Aucune détection » ne signifie pas « aucun danger »
+
+L'absence de point peut signifier :
+
+- qu'aucune anomalie thermique n'a été détectée ;
 - que le satellite n'est pas encore repassé ;
-- que des nuages ou de la fumée ont limité l'observation ;
-- que les données ne sont pas encore disponibles ;
-- que le service NASA est temporairement inaccessible.
+- que les nuages ou la fumée ont limité l'observation ;
+- que les données sont retardées ;
+- qu'un service distant est temporairement indisponible.
 
-L'absence de point sur la carte ne garantit donc pas l'absence de danger.
+Ne prenez jamais une décision d'évacuation ou de retour dans une zone touchée uniquement à partir de cette carte.
 
-## Conseils pour les familles et les personnes peu à l'aise avec l'informatique
+## Ajouter l'application à l'écran d'accueil
 
-- Gardez le rayon à **100 km** pour commencer.
-- Gardez l'historique à **72 heures** afin de voir l'évolution récente.
-- Regardez d'abord les points rouges et orange.
-- Vérifiez l'heure de la dernière détection en haut de l'écran.
-- Appuyez sur **Cadrer les feux** pour recentrer automatiquement la carte.
-- En cas de doute, fiez-vous toujours aux consignes des autorités locales, des pompiers, de la préfecture et des services de secours.
+### Android
 
-## Installer l'application sur son téléphone
+Dans Chrome : menu `⋮` → **Ajouter à l'écran d'accueil**.
 
-Aucune installation technique n'est nécessaire.
+### iPhone ou iPad
 
-### Depuis GitHub Pages
+Dans Safari : **Partager** → **Sur l'écran d'accueil**.
 
-1. Ouvrez l'adresse de l'application dans Chrome, Safari ou Firefox.
-2. Sur Android : menu du navigateur → **Ajouter à l'écran d'accueil**.
-3. Sur iPhone : bouton **Partager** → **Sur l'écran d'accueil**.
+L'application apparaîtra comme un raccourci, mais une connexion Internet reste nécessaire pour charger la carte et les données.
 
-L'application apparaîtra alors comme un raccourci sur le téléphone.
+## Données et services utilisés
 
-## Utilisation hors GitHub
+- **NASA FIRMS** : détections thermiques VIIRS S-NPP, VIIRS NOAA-20, VIIRS NOAA-21 et MODIS ;
+- **OpenStreetMap** : fond cartographique ;
+- **Leaflet** : navigation fluide sur la carte ;
+- **Nominatim / OpenStreetMap** : recherche des villes ;
+- **Open-Meteo** : vent actuel, direction et rafales.
 
-Le projet tient dans un seul fichier HTML.
+## Vie privée
 
-Vous pouvez :
+- aucun compte utilisateur ;
+- aucun suivi publicitaire ajouté par le projet ;
+- aucune géolocalisation obligatoire ;
+- aucune clé NASA publiée dans le code ;
+- la ville, les réglages et la clé sont conservés localement dans le navigateur.
 
-1. télécharger `index.html` ;
-2. le copier sur une clé USB ;
-3. l'envoyer à un proche ;
-4. l'héberger sur n'importe quel serveur statique.
+Effacer les données du site dans le navigateur supprimera aussi la clé enregistrée.
 
-Une connexion Internet reste nécessaire pour charger la carte et les données satellites.
+## Fonctionnement technique
 
-## Activer GitHub Pages pour ce dépôt
+Le projet tient dans un unique fichier `index.html` : HTML, CSS et JavaScript côté navigateur.
 
-Dans GitHub :
+Aucun serveur applicatif ni processus de compilation n'est nécessaire. Le site est publié directement avec GitHub Pages.
 
-1. ouvrez **Settings** ;
-2. allez dans **Pages** ;
-3. dans **Build and deployment**, choisissez **Deploy from a branch** ;
-4. sélectionnez la branche `main` ;
-5. sélectionnez le dossier `/ (root)` ;
-6. cliquez sur **Save**.
+## Développement local
 
-Après quelques minutes, l'application sera accessible à une adresse proche de :
+1. Clonez ou téléchargez le dépôt.
+2. Ouvrez `index.html` dans un navigateur récent.
+3. Entrez votre propre clé NASA FIRMS dans l'interface.
 
-`https://elgrandexu.github.io/EGX_Incendies/`
-
-## Sources
-
-- NASA FIRMS — Fire Information for Resource Management System
-- Satellites et instruments : VIIRS S-NPP, VIIRS NOAA-20, VIIRS NOAA-21 et MODIS
-- Fond de carte : OpenStreetMap
+Certaines API peuvent appliquer des règles réseau ou de sécurité différentes lorsque le fichier est ouvert directement depuis le disque. Pour reproduire exactement GitHub Pages, servez le dossier avec un petit serveur HTTP local.
 
 ## Limites et responsabilité
 
-Cette application est un outil citoyen de visualisation et de compréhension. Elle ne remplace pas :
+EGX Incendies est un outil citoyen de visualisation et de compréhension. Il ne remplace pas :
 
 - les alertes officielles ;
 - les cartes des autorités ;
 - les consignes d'évacuation ;
-- les informations des pompiers ;
-- les appels aux services d'urgence.
+- les informations des pompiers et des préfectures ;
+- les services d'urgence.
 
-Les données peuvent être retardées, incomplètes ou mal interprétées. N'utilisez jamais cette carte seule pour décider d'une évacuation, d'un déplacement ou d'un retour dans une zone touchée.
-
-## Vie privée
-
-- aucune création de compte ;
-- aucun suivi publicitaire ;
-- aucune géolocalisation demandée ;
-- aucune clé NASA incluse dans le dépôt ;
-- la clé saisie reste dans la session locale du navigateur.
+Les données peuvent être retardées, incomplètes ou mal interprétées.
 
 ## Licence
 
