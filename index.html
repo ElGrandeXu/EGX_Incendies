@@ -80,6 +80,7 @@
     .metric{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px 9px;min-width:0}
     .metric .k{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .metric .v{font-size:15px;font-weight:800;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .metric-sub{font-size:8px;color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .wind-value{display:flex;align-items:center;gap:4px}
     #windArrow{display:inline-block;transform-origin:center;transition:transform .25s ease;font-size:17px;line-height:1}
 
@@ -93,6 +94,12 @@
       box-shadow:0 3px 10px rgba(0,0,0,.25);padding:4px 7px;
       font-size:11px;font-weight:800
     }
+    .leaflet-tooltip.fire-group-label{
+      background:rgba(23,21,19,.92);color:#fff;border:1px solid rgba(255,255,255,.16);
+      border-radius:999px;box-shadow:0 3px 12px rgba(0,0,0,.28);
+      padding:4px 7px;font-size:10px;font-weight:800;line-height:1
+    }
+    .leaflet-tooltip.fire-group-label::before{display:none}
     .leaflet-tooltip.city-label::before{display:none}
 
     .map-top,.map-bottom{
@@ -143,6 +150,8 @@
     .notice{font-size:11px;line-height:1.45;color:var(--muted)}
     .notice strong{color:var(--text)}
     .wind-detail{display:flex;align-items:center;gap:12px}
+    .smoke-detail{display:grid;gap:5px}
+    .smoke-status{font-size:16px;font-weight:800}
     .wind-compass{
       width:50px;height:50px;border-radius:50%;flex:0 0 auto;
       display:grid;place-items:center;background:var(--panel2);border:1px solid var(--line);
@@ -162,6 +171,9 @@
       display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;
       padding:9px 0;border-bottom:1px solid var(--line)
     }
+    .feed-item[data-group]{cursor:pointer;border-radius:10px;padding-left:5px;padding-right:5px}
+    .feed-item[data-group]:active{background:var(--panel2)}
+    .feed-help{font-size:9px;line-height:1.35;color:var(--muted);margin:-3px 0 5px}
     .feed-item:last-child{border-bottom:0}
     .feed-main{font-size:11px;line-height:1.3}
     .feed-sub{font-size:9px;color:var(--muted);margin-top:2px}
@@ -230,8 +242,12 @@
     </div>
 
     <div class="metrics">
-      <div class="metric"><div class="k">Détections</div><div class="v" id="count">—</div></div>
-      <div class="metric"><div class="k">Plus récente</div><div class="v" id="latest">—</div></div>
+      <div class="metric">
+        <div class="k">Foyers probables</div>
+        <div class="v" id="groupCount">—</div>
+        <div class="metric-sub" id="count">— détection</div>
+      </div>
+      <div class="metric"><div class="k">Risque fumée</div><div class="v" id="smokeRisk">—</div></div>
       <div class="metric"><div class="k">Plus proche</div><div class="v" id="nearest">—</div></div>
       <div class="metric"><div class="k">Vent actuel</div><div class="v wind-value"><span id="windArrow">↑</span> <span id="windSpeed">—</span></div></div>
     </div>
@@ -251,6 +267,8 @@
         <div class="legend-row"><span class="dot" style="background:#ff9a3c"></span><span>3–12 h</span></div>
         <div class="legend-row"><span class="dot" style="background:#ffd85a"></span><span>12–24 h</span></div>
         <div class="legend-row"><span class="dot" style="background:#72b7ff"></span><span>24–72 h</span></div>
+        <div class="legend-row"><span style="font-size:11px">🔥</span><span>Foyer probable regroupé</span></div>
+        <div class="legend-row"><span style="display:inline-block;width:12px;border-top:1px dashed #f08b45"></span><span>Contour indicatif au zoom</span></div>
       </div>
 
       <div class="map-buttons">
@@ -348,12 +366,24 @@
           </div>
         </div>
         <div class="notice" style="margin-top:9px">
-          Le vent donne un contexte utile, mais ne permet pas à lui seul de prévoir la propagation d'un incendie.
+          Le vent donne un contexte utile. L'indicateur de fumée combine sa direction avec la position des détections, mais ne constitue ni une mesure de qualité de l'air ni une prévision officielle.
         </div>
       </section>
 
       <section class="card">
-        <h3>Dernières détections</h3>
+        <h3>Fumées possibles vers <span id="smokeCity">Bordeaux</span></h3>
+        <div class="smoke-detail">
+          <span class="smoke-status" id="smokeStatus">Données en attente</span>
+          <div class="feed-sub" id="smokeExplanation">Analyse de la position des détections et du vent actuel.</div>
+        </div>
+        <div class="notice" style="margin-top:9px">
+          Indicateur pédagogique, non officiel. Il estime si le vent peut transporter des fumées depuis des détections récentes vers la ville observée. Il ne mesure pas directement la qualité de l'air.
+        </div>
+      </section>
+
+      <section class="card">
+        <h3>Foyers détectés</h3>
+        <div class="feed-help">Les détections proches dans l’espace et dans le temps sont regroupées pour faciliter la lecture.</div>
         <div class="feed" id="feed"><div class="empty">En attente des données…</div></div>
       </section>
 
@@ -380,6 +410,7 @@
   const state = {
     mapKey: localStorage.getItem(STORAGE_KEY) || "",
     points: [],
+    fireGroups: [],
     wind: null,
     lastFetch: null,
     loading: false,
@@ -434,6 +465,7 @@
   const renderer = L.canvas({padding:.35,tolerance:6});
   const pointLayer = L.layerGroup().addTo(map);
   const hullLayer = L.layerGroup().addTo(map);
+  const fireGroupLayer = L.layerGroup().addTo(map);
 
   const cityLayer = L.layerGroup().addTo(map);
 
@@ -465,6 +497,97 @@
     const R=6371,dLat=rad(b.lat-a.lat),dLon=rad(b.lon-a.lon);
     const x=Math.sin(dLat/2)**2+Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(dLon/2)**2;
     return 2*R*Math.asin(Math.sqrt(x));
+  }
+
+  function bearing(from,to){
+    const lat1=rad(from.lat),lat2=rad(to.lat),dLon=rad(to.lon-from.lon);
+    const y=Math.sin(dLon)*Math.cos(lat2);
+    const x=Math.cos(lat1)*Math.sin(lat2)-Math.sin(lat1)*Math.cos(lat2)*Math.cos(dLon);
+    return (Math.atan2(y,x)*180/Math.PI+360)%360;
+  }
+
+  function angleDiff(a,b){
+    return Math.abs(((a-b+540)%360)-180);
+  }
+
+  function smokeRisk(){
+    const location=currentLocation();
+    if(!state.wind || !state.points.length){
+      return {
+        level:"Indisponible",
+        color:"#b8aea4",
+        explanation:state.points.length
+          ?"Vent indisponible : le trajet potentiel des fumées ne peut pas être estimé."
+          :"Aucune détection récente à analyser dans la zone choisie."
+      };
+    }
+
+    const recent=state.points.filter(p=>(Date.now()-p.time)<=24*36e5);
+    if(!recent.length){
+      return {
+        level:"Faible",
+        color:"#74d99f",
+        explanation:"Aucune détection de moins de 24 heures dans la zone observée."
+      };
+    }
+
+    const nearest=Math.min(...recent.map(p=>haversine(location,p)));
+    if(nearest<=5){
+      return {
+        level:"Très élevé",
+        color:"#ff493b",
+        explanation:`Des détections récentes se trouvent à environ ${Math.max(0,Math.round(nearest))} km de la ville. La proximité immédiate domine l'estimation, quelle que soit la direction du vent.`
+      };
+    }
+
+    // Open-Meteo gives the meteorological direction the wind comes FROM.
+    // Smoke therefore travels approximately toward direction + 180°.
+    const smokeTravel=(state.wind.direction+180)%360;
+    let score=0;
+    let alignedCount=0;
+    let closestAligned=Infinity;
+
+    for(const p of recent){
+      const distance=haversine(p,location);
+      if(distance>150) continue;
+
+      const towardCity=bearing(p,location);
+      const diff=angleDiff(smokeTravel,towardCity);
+      if(diff>75) continue;
+
+      const alignment=Math.max(0,Math.cos(rad(diff)));
+      const ageHours=(Date.now()-p.time)/36e5;
+      const freshness=Math.max(0.15,1-ageHours/30);
+      const proximity=Math.max(0.08,1-distance/170);
+      const frp=Number.isFinite(p.frp) ? Math.min(2,0.65+p.frp/80) : 0.75;
+
+      score+=alignment*freshness*proximity*frp;
+      alignedCount++;
+      closestAligned=Math.min(closestAligned,distance);
+    }
+
+    if(!alignedCount || score<0.8){
+      return {
+        level:"Faible",
+        color:"#74d99f",
+        explanation:"Le vent actuel ne dirige pas nettement les fumées des détections récentes vers la ville."
+      };
+    }
+
+    const direction=compassDirection(state.wind.direction);
+    if(score>=8 || closestAligned<=20){
+      return {
+        level:"Élevé",
+        color:"#ff493b",
+        explanation:`Le vent venant du ${direction.toLowerCase()} peut transporter des fumées depuis ${alignedCount} détection${alignedCount>1?"s":""} récente${alignedCount>1?"s":""}. La plus proche dans cet axe est à environ ${Math.round(closestAligned)} km.`
+      };
+    }
+
+    return {
+      level:"Modéré",
+      color:"#ffc14d",
+      explanation:`Certaines détections récentes se trouvent dans l'axe du vent. La plus proche est à environ ${Math.round(closestAligned)} km ; la situation mérite d'être surveillée.`
+    };
   }
 
   function splitCSV(line){
@@ -644,9 +767,174 @@
     return groups;
   }
 
+  function buildFireGroups(points){
+    if(!points.length) return [];
+
+    // A detection joins another when both are within 5 km and 18 hours.
+    // Transitive links let successive satellite passes describe one evolving event.
+    const maxKm=5;
+    const maxMs=18*36e5;
+    const latStep=maxKm/111;
+    const lonStep=maxKm/(111*Math.max(.2,Math.cos(rad(currentLocation().lat))));
+    const timeStep=6*36e5;
+    const parent=points.map((_,i)=>i);
+    const rank=points.map(()=>0);
+    const buckets=new Map();
+
+    const find=i=>{
+      while(parent[i]!==i){
+        parent[i]=parent[parent[i]];
+        i=parent[i];
+      }
+      return i;
+    };
+    const union=(a,b)=>{
+      let ra=find(a),rb=find(b);
+      if(ra===rb) return;
+      if(rank[ra]<rank[rb]) [ra,rb]=[rb,ra];
+      parent[rb]=ra;
+      if(rank[ra]===rank[rb]) rank[ra]++;
+    };
+    const key=(x,y,t)=>`${x}|${y}|${t}`;
+
+    for(let i=0;i<points.length;i++){
+      const p=points[i];
+      const x=Math.floor(p.lon/lonStep);
+      const y=Math.floor(p.lat/latStep);
+      const t=Math.floor(p.time/timeStep);
+
+      for(let dx=-1;dx<=1;dx++){
+        for(let dy=-1;dy<=1;dy++){
+          for(let dt=-3;dt<=3;dt++){
+            const candidates=buckets.get(key(x+dx,y+dy,t+dt));
+            if(!candidates) continue;
+            for(const j of candidates){
+              const q=points[j];
+              if(Math.abs(p.time-q.time)<=maxMs && haversine(p,q)<=maxKm) union(i,j);
+            }
+          }
+        }
+      }
+
+      const ownKey=key(x,y,t);
+      if(!buckets.has(ownKey)) buckets.set(ownKey,[]);
+      buckets.get(ownKey).push(i);
+    }
+
+    const components=new Map();
+    for(let i=0;i<points.length;i++){
+      const root=find(i);
+      if(!components.has(root)) components.set(root,[]);
+      components.get(root).push(points[i]);
+    }
+
+    return [...components.values()].map((items,index)=>{
+      items.sort((a,b)=>b.time-a.time);
+      const lats=items.map(p=>p.lat),lons=items.map(p=>p.lon);
+      const minLat=Math.min(...lats),maxLat=Math.max(...lats);
+      const minLon=Math.min(...lons),maxLon=Math.max(...lons);
+      const center={
+        lat:items.reduce((sum,p)=>sum+p.lat,0)/items.length,
+        lon:items.reduce((sum,p)=>sum+p.lon,0)/items.length
+      };
+      const extent=items.length>1
+        ?haversine({lat:minLat,lon:minLon},{lat:maxLat,lon:maxLon})
+        :0;
+      const frps=items.map(p=>p.frp).filter(Number.isFinite);
+      return {
+        id:index,
+        points:items,
+        count:items.length,
+        latest:items[0].time,
+        earliest:items.at(-1).time,
+        center,
+        bounds:[[minLat,minLon],[maxLat,maxLon]],
+        nearest:Math.min(...items.map(p=>haversine(currentLocation(),p))),
+        extent,
+        sensors:[...new Set(items.map(p=>p.sensor))],
+        maxFrp:frps.length?Math.max(...frps):null
+      };
+    }).sort((a,b)=>b.latest-a.latest || b.count-a.count);
+  }
+
+  function focusFireGroup(group){
+    if(!group) return;
+    if(group.count===1){
+      map.flyTo([group.center.lat,group.center.lon],Math.max(map.getZoom(),11),{duration:.45});
+      return;
+    }
+    const bounds=L.latLngBounds(group.bounds);
+    map.fitBounds(bounds,{padding:[50,50],maxZoom:12,animate:true,duration:.45});
+  }
+
+  function renderFireGroupOverlays(){
+    fireGroupLayer.clearLayers();
+
+    const zoom=map.getZoom();
+    const significant=state.fireGroups
+      .filter(group=>group.count>=15)
+      .sort((a,b)=>b.count-a.count)
+      .slice(0,zoom<=8?10:16);
+
+    for(const group of significant){
+      const age=(Date.now()-group.latest)/36e5;
+      const color=colorForAge(age);
+      const radiusMeters=Math.max(
+        1200,
+        Math.min(15000,900+group.extent*300+Math.sqrt(group.count)*26)
+      );
+
+      // Halo léger : donne une sensation d'échelle sans masquer la carte.
+      L.circle([group.center.lat,group.center.lon],{
+        radius:radiusMeters,
+        color,
+        weight:1.25,
+        opacity:.42,
+        fillColor:color,
+        fillOpacity:zoom<=9?.045:.025,
+        interactive:false
+      }).addTo(fireGroupLayer);
+
+      // Contour très discret uniquement pour les grands groupes et à zoom rapproché.
+      if(group.count>=100 && zoom>=9){
+        const outline=hull(group.points.map(p=>({x:p.lon,y:p.lat,p})));
+        if(outline.length>=3){
+          L.polygon(outline.map(q=>[q.p.lat,q.p.lon]),{
+            color,
+            weight:1.5,
+            opacity:.62,
+            fill:false,
+            dashArray:"5 6",
+            lineJoin:"round",
+            interactive:false
+          }).addTo(fireGroupLayer);
+        }
+      }
+
+      L.circleMarker([group.center.lat,group.center.lon],{
+        radius:zoom<=9?8:6,
+        color:"#2b160f",
+        weight:1.5,
+        opacity:.95,
+        fillColor:color,
+        fillOpacity:.96,
+        interactive:true
+      })
+      .bindTooltip(`🔥 ${group.count.toLocaleString("fr-FR")}`,{
+        permanent:zoom<=10,
+        direction:"top",
+        offset:[0,-7],
+        className:"fire-group-label"
+      })
+      .on("click",()=>focusFireGroup(group))
+      .addTo(fireGroupLayer);
+    }
+  }
+
   function renderLayers(){
     pointLayer.clearLayers();
     hullLayer.clearLayers();
+    state.fireGroups=buildFireGroups(state.points);
 
     const now=Date.now();
     const mode=state.settings.mode;
@@ -689,6 +977,8 @@
         }
       }
     }
+
+    renderFireGroupOverlays();
   }
 
   function relTime(t){
@@ -712,8 +1002,16 @@
   }
 
   function updateUI(){
-    $("count").textContent=state.points.length.toLocaleString("fr-FR");
-    $("latest").textContent=state.points.length?relTime(state.points[0].time):"Aucune";
+    const probableGroups=state.fireGroups.filter(group=>group.count>1);
+    $("groupCount").textContent=probableGroups.length.toLocaleString("fr-FR");
+    $("count").textContent=`${state.points.length.toLocaleString("fr-FR")} détection${state.points.length>1?"s":""} NASA`;
+    const smoke=smokeRisk();
+    $("smokeRisk").textContent=smoke.level;
+    $("smokeRisk").style.color=smoke.color;
+    $("smokeCity").textContent=currentLocation().name;
+    $("smokeStatus").textContent=smoke.level;
+    $("smokeStatus").style.color=smoke.color;
+    $("smokeExplanation").textContent=smoke.explanation;
     const distances=state.points.map(p=>haversine(currentLocation(),p));
     $("nearest").textContent=distances.length?`${Math.min(...distances).toFixed(0)} km`:"—";
     $("sourceStatus").textContent=state.lastFetch
@@ -738,23 +1036,55 @@
     }
 
     const feed=$("feed");
-    if(!state.points.length){
+    if(!state.fireGroups.length){
       feed.innerHTML='<div class="empty">Aucune détection dans la fenêtre choisie.</div>';
       return;
     }
 
-    feed.innerHTML=state.points.slice(0,24).map(p=>{
-      const d=haversine(currentLocation(),p),age=(Date.now()-p.time)/36e5;
-      return `<div class="feed-item">
+    feed.innerHTML=state.fireGroups.slice(0,24).map((group,index)=>{
+      const age=(Date.now()-group.latest)/36e5;
+      const distance=`${group.nearest.toFixed(0)} km de ${escapeHtml(currentLocation().name)}`;
+      if(group.count===1){
+        const p=group.points[0];
+        return `<div class="feed-item" data-group="${index}" role="button" tabindex="0">
+          <span class="dot" style="background:${colorForAge(age)}"></span>
+          <div>
+            <div class="feed-main">Détection isolée · ${distance}</div>
+            <div class="feed-sub">${escapeHtml(p.sensor)}${p.frp!==null?` · FRP ${p.frp.toFixed(1)} MW`:""} · ${fmtDate(p.time)}</div>
+          </div>
+          <span class="badge">${relTime(p.time)}</span>
+        </div>`;
+      }
+
+      const extent=group.extent<1?"moins de 1 km":`environ ${Math.max(1,Math.round(group.extent))} km`;
+      const sources=`${group.sensors.length} source${group.sensors.length>1?"s":""} satellite${group.sensors.length>1?"s":""}`;
+      const frp=group.maxFrp!==null?` · FRP max ${group.maxFrp.toFixed(1)} MW`:"";
+      return `<div class="feed-item" data-group="${index}" role="button" tabindex="0">
         <span class="dot" style="background:${colorForAge(age)}"></span>
         <div>
-          <div class="feed-main">${d.toFixed(0)} km de ${escapeHtml(currentLocation().name)} · ${fmtDate(p.time)}</div>
-          <div class="feed-sub">${escapeHtml(p.sensor)}${p.frp?` · FRP ${p.frp.toFixed(1)} MW`:""}</div>
+          <div class="feed-main"><strong>Foyer probable</strong> · ${distance} · ${group.count.toLocaleString("fr-FR")} détections</div>
+          <div class="feed-sub">Étendue observée : ${extent} · ${sources}${frp}</div>
         </div>
-        <span class="badge">${relTime(p.time)}</span>
+        <span class="badge">${relTime(group.latest)}</span>
       </div>`;
     }).join("");
   }
+
+  map.on("zoomend",renderFireGroupOverlays);
+
+  $("feed").addEventListener("click",event=>{
+    const item=event.target.closest("[data-group]");
+    if(!item) return;
+    focusFireGroup(state.fireGroups[+item.dataset.group]);
+  });
+
+  $("feed").addEventListener("keydown",event=>{
+    if(event.key!=="Enter" && event.key!==" ") return;
+    const item=event.target.closest("[data-group]");
+    if(!item) return;
+    event.preventDefault();
+    focusFireGroup(state.fireGroups[+item.dataset.group]);
+  });
 
   function fitPoints(){
     const location=currentLocation();
