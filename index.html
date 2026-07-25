@@ -1018,22 +1018,29 @@
       ?`NASA FIRMS · ${new Intl.DateTimeFormat("fr-FR",{hour:"2-digit",minute:"2-digit"}).format(state.lastFetch)}`
       :"En attente";
 
-    $("windCity").textContent=currentLocation().name;
-    if(state.wind){
-      const direction=compassDirection(state.wind.direction);
-      $("windArrow").style.transform=`rotate(${state.wind.direction}deg)`;
-      $("windArrow").textContent="↑";
-      $("windSpeed").textContent=`${Math.round(state.wind.speed)} km/h`;
-      $("windNeedle").style.transform=`rotate(${state.wind.direction}deg)`;
-      $("windDetailSpeed").textContent=`${Math.round(state.wind.speed)} km/h · ${direction}`;
-      $("windDetailDirection").textContent=state.wind.gusts!==null
-        ?`Rafales jusqu'à ${Math.round(state.wind.gusts)} km/h`
-        :"Rafales indisponibles";
-    }else{
-      $("windSpeed").textContent="—";
-      $("windDetailSpeed").textContent="Données en attente";
-      $("windDetailDirection").textContent="Direction et rafales";
-    }
+    $("windCity").textContent = currentLocation().name;
+
+if (state.wind) {
+  const direction = compassDirection(state.wind.direction);
+  
+  // === MODIFICATION ICI ===
+  const arrowAngle = (state.wind.direction + 180) % 360;   // +180° pour inverser la flèche
+  
+  $("windArrow").style.transform = `rotate(${arrowAngle}deg)`;
+  $("windArrow").textContent = "↑";
+  $("windSpeed").textContent = `${Math.round(state.wind.speed)} km/h`;
+  
+  $("windNeedle").style.transform = `rotate(${arrowAngle}deg)`;   // on inverse aussi l'aiguille du compas
+  
+  $("windDetailSpeed").textContent = `${Math.round(state.wind.speed)} km/h · ${direction}`;
+  $("windDetailDirection").textContent = state.wind.gusts !== null
+    ? `Rafales jusqu'à ${Math.round(state.wind.gusts)} km/h`
+    : "Rafales indisponibles";
+} else {
+  $("windSpeed").textContent = "—";
+  $("windDetailSpeed").textContent = "Données en attente";
+  $("windDetailDirection").textContent = "Direction et rafales";
+}
 
     const feed=$("feed");
     if(!state.fireGroups.length){
