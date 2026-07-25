@@ -177,17 +177,21 @@ Effacer les données du site dans le navigateur supprimera aussi la clé enregis
 
 ## Fonctionnement technique
 
-Le projet tient dans un unique fichier `index.html` : HTML, CSS et JavaScript côté navigateur.
+Le projet tient dans trois fichiers à la racine du dépôt :
+
+- `index.html` : structure de l'interface et point d'entrée GitHub Pages ;
+- `style.css` : présentation responsive et thèmes clair/sombre ;
+- `app.js` : données, carte, interactions et préférences locales.
 
 Aucun serveur applicatif ni processus de compilation n'est nécessaire. Le site est publié directement avec GitHub Pages.
 
 ## Développement local
 
 1. Clonez ou téléchargez le dépôt.
-2. Ouvrez `index.html` dans un navigateur récent.
+2. Servez la racine du dépôt avec un serveur HTTP local.
 3. Entrez votre propre clé NASA FIRMS dans l'interface.
 
-Certaines API peuvent appliquer des règles réseau ou de sécurité différentes lorsque le fichier est ouvert directement depuis le disque. Pour reproduire exactement GitHub Pages, servez le dossier avec un petit serveur HTTP local.
+Par exemple : `python -m http.server 8000`, puis ouvrez `http://localhost:8000/`.
 
 ## Limites et responsabilité
 

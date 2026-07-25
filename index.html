@@ -1,1294 +1,386 @@
 <!doctype html>
-<html lang="fr">
+<html lang="fr" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#100f0e">
-  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#f8f9fb">
+  <meta name="color-scheme" content="light dark">
   <meta name="description" content="Carte citoyenne des détections thermiques satellites autour de la ville de votre choix, basée sur NASA FIRMS.">
   <title>EGX Incendies</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%23c81e1e' d='M34 3c3 13-7 17-2 28 4-3 7-7 8-12 9 8 15 18 13 28-2 10-11 17-22 17S10 57 10 45c0-11 7-19 17-30 0 9 1 14 5 17C28 20 36 15 34 3Z'/%3E%3Cpath fill='%23fff' d='M31 57c-7 0-12-5-12-12 0-5 3-9 8-14 0 6 2 9 5 11 0-5 3-9 7-12 4 5 6 10 5 15-1 7-6 12-13 12Z'/%3E%3C/svg%3E">
 
   <link rel="preconnect" href="https://tile.openstreetmap.org">
   <link rel="preconnect" href="https://firms.modaps.eosdis.nasa.gov">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-
-  <style>
-    :root{
-      --bg:#100f0e;
-      --panel:#191715;
-      --panel2:#211e1b;
-      --text:#f6f1eb;
-      --muted:#b8aea4;
-      --line:#39332e;
-      --accent:#ff7a45;
-      --danger:#ff493b;
-      --warn:#ffc14d;
-      --ok:#74d99f;
-      --blue:#65b8ff;
-      --shadow:0 10px 34px rgba(0,0,0,.34);
-      --safe-top:max(12px,env(safe-area-inset-top));
-      --safe-bottom:max(12px,env(safe-area-inset-bottom));
-    }
-
-    *{box-sizing:border-box}
-    html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
-    button,input,select{font:inherit}
-    button{cursor:pointer}
-    button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid rgba(255,122,69,.5);outline-offset:2px}
-    [hidden]{display:none!important}
-
-    .app{height:100%;display:grid;grid-template-rows:auto minmax(0,1fr)}
-    header{
-      position:relative;
-      z-index:1000;
-      padding:12px 12px 10px;
-      padding-top:var(--safe-top);
-      border-bottom:1px solid var(--line);
-      background:rgba(16,15,14,.96);
-      backdrop-filter:blur(14px);
-      -webkit-backdrop-filter:blur(14px);
-    }
-
-    .head-row{display:flex;align-items:flex-start;gap:10px}
-    .logo{
-      width:38px;height:38px;border-radius:13px;
-      display:grid;place-items:center;flex:0 0 auto;
-      background:linear-gradient(145deg,#ff9b4b,#e8382f);
-      box-shadow:var(--shadow);font-size:19px
-    }
-    .head-copy{min-width:0;flex:1}
-    h1{font-size:17px;line-height:1.2;margin:0 0 3px;font-weight:800}
-    .subtitle{font-size:11px;color:var(--muted);line-height:1.35}
-    .header-actions{display:flex;gap:7px;align-items:center}
-
-    .icon-btn,.primary,.secondary{
-      border:1px solid var(--line);color:var(--text);font-weight:750;
-      -webkit-tap-highlight-color:transparent;
-    }
-    .icon-btn{
-      width:40px;height:40px;border-radius:12px;background:var(--panel2);
-      display:grid;place-items:center;padding:0;font-size:18px
-    }
-    .primary,.secondary{border-radius:12px;padding:11px 13px}
-    .primary{background:var(--accent);border-color:transparent;color:#23130d}
-    .secondary{background:var(--panel2)}
-
-    .metrics{
-      display:grid;grid-template-columns:repeat(4,minmax(0,1fr));
-      gap:7px;margin-top:10px
-    }
-    .metric{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px 9px;min-width:0}
-    .metric .k{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .metric .v{font-size:15px;font-weight:800;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .metric-sub{font-size:8px;color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .wind-value{display:flex;align-items:center;gap:4px}
-    #windArrow{display:inline-block;transform-origin:center;transition:transform .25s ease;font-size:17px;line-height:1}
-
-    main{position:relative;min-height:0}
-    #map{position:absolute;inset:0;background:#24231f}
-    .leaflet-container{font:inherit;background:#24231f}
-    .leaflet-control-attribution{font-size:9px;background:rgba(255,255,255,.82)!important}
-    .leaflet-control-zoom{display:none}
-    .leaflet-tooltip.city-label{
-      background:#171513;color:#fff;border:0;border-radius:8px;
-      box-shadow:0 3px 10px rgba(0,0,0,.25);padding:4px 7px;
-      font-size:11px;font-weight:800
-    }
-    .leaflet-tooltip.fire-group-label{
-      background:rgba(23,21,19,.92);color:#fff;border:1px solid rgba(255,255,255,.16);
-      border-radius:999px;box-shadow:0 3px 12px rgba(0,0,0,.28);
-      padding:4px 7px;font-size:10px;font-weight:800;line-height:1
-    }
-    .leaflet-tooltip.fire-group-label::before{display:none}
-    .leaflet-tooltip.city-label::before{display:none}
-
-    .map-top,.map-bottom{
-      position:absolute;z-index:900;left:10px;right:10px;
-      display:flex;justify-content:space-between;gap:8px;pointer-events:none
-    }
-    .map-top{top:10px;align-items:flex-start}
-    .map-bottom{bottom:var(--safe-bottom);align-items:flex-end}
-    .map-top>* , .map-bottom>*{pointer-events:auto}
-
-    .pill,.legend,.floating-card{
-      border:1px solid rgba(255,255,255,.15);
-      background:rgba(18,17,16,.88);color:var(--text);
-      backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
-      box-shadow:0 5px 18px rgba(0,0,0,.25)
-    }
-    .pill{border-radius:999px;padding:7px 10px;font-size:10px;line-height:1.25;max-width:calc(100vw - 72px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .legend{border-radius:13px;padding:8px 10px;display:grid;gap:4px;font-size:9px}
-    .legend-row{display:flex;align-items:center;gap:6px}
-    .dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
-    .map-buttons{display:grid;gap:6px}
-    .map-buttons .icon-btn{background:rgba(18,17,16,.9);border-color:rgba(255,255,255,.15)}
-
-    .drawer{
-      position:absolute;z-index:1100;top:0;right:0;bottom:0;
-      width:min(390px,100%);padding:12px;padding-top:var(--safe-top);padding-bottom:var(--safe-bottom);
-      background:rgba(16,15,14,.98);border-left:1px solid var(--line);
-      box-shadow:-20px 0 50px rgba(0,0,0,.38);
-      transform:translateX(102%);transition:transform .2s ease;
-      overflow:auto;overscroll-behavior:contain
-    }
-    .drawer.open{transform:translateX(0)}
-    .drawer-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
-    .drawer h2{font-size:16px;margin:0}
-    .card{background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:12px;margin-bottom:10px}
-    .card h3{font-size:13px;margin:0 0 10px}
-    .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-    label{display:grid;gap:5px;font-size:10px;color:var(--muted)}
-    select,input{
-      width:100%;min-width:0;border:1px solid var(--line);background:var(--panel2);
-      color:var(--text);border-radius:11px;padding:10px 11px;outline:none
-    }
-    .actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:9px}
-    .city-search{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
-    .city-search .primary{white-space:nowrap}
-    .city-result{margin-top:8px}
-    .city-status{min-height:16px;margin-top:7px;font-size:10px;line-height:1.35;color:var(--muted)}
-    .notice{font-size:11px;line-height:1.45;color:var(--muted)}
-    .notice strong{color:var(--text)}
-    .wind-detail{display:flex;align-items:center;gap:12px}
-    .smoke-detail{display:grid;gap:5px}
-    .smoke-status{font-size:16px;font-weight:800}
-    .wind-compass{
-      width:50px;height:50px;border-radius:50%;flex:0 0 auto;
-      display:grid;place-items:center;background:var(--panel2);border:1px solid var(--line);
-      position:relative
-    }
-    .wind-compass::before,.wind-compass::after{
-      position:absolute;font-size:8px;color:var(--muted);font-weight:800
-    }
-    .wind-compass::before{content:"N";top:3px}
-    .wind-compass::after{content:"S";bottom:3px}
-    .wind-needle{
-      font-size:27px;line-height:1;transform-origin:center;
-      transition:transform .25s ease;color:var(--blue)
-    }
-    .feed{display:grid}
-    .feed-item{
-      display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;
-      padding:9px 0;border-bottom:1px solid var(--line)
-    }
-    .feed-item[data-group]{cursor:pointer;border-radius:10px;padding-left:5px;padding-right:5px}
-    .feed-item[data-group]:active{background:var(--panel2)}
-    .feed-help{font-size:9px;line-height:1.35;color:var(--muted);margin:-3px 0 5px}
-    .feed-item:last-child{border-bottom:0}
-    .feed-main{font-size:11px;line-height:1.3}
-    .feed-sub{font-size:9px;color:var(--muted);margin-top:2px}
-    .badge{font-size:9px;border-radius:999px;padding:4px 7px;background:var(--panel2);color:var(--muted)}
-    .empty{font-size:11px;color:var(--muted);text-align:center;padding:14px 4px}
-    .error{
-      display:none;margin-top:9px;padding:9px 10px;border-radius:11px;
-      background:#451b18;border:1px solid #77302a;color:#ffd8d3;
-      font-size:10px;line-height:1.4
-    }
-    .error.show{display:block}
-    .loading-spin{
-      width:16px;height:16px;border:2px solid rgba(255,255,255,.28);
-      border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite
-    }
-    @keyframes spin{to{transform:rotate(360deg)}}
-    .scrim{
-      position:absolute;z-index:1050;inset:0;background:rgba(0,0,0,.38);
-      opacity:0;pointer-events:none;transition:opacity .2s ease
-    }
-    .scrim.show{opacity:1;pointer-events:auto}
-    a{color:#ffb38b}
-
-    @media(max-width:430px){.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
-
-    @media(min-width:700px){
-      header{padding-left:16px;padding-right:16px}
-      .metrics{max-width:620px}
-      h1{font-size:18px}
-      .drawer{width:390px}
-      .legend{font-size:10px}
-    }
-
-    @media(min-width:1100px){
-      .app{grid-template-rows:auto minmax(0,1fr)}
-      .drawer{
-        transform:none;position:absolute;top:0;right:0;bottom:0;width:370px;
-        border-left:1px solid var(--line);box-shadow:none;background:var(--bg)
-      }
-      main{padding-right:370px}
-      #map{right:370px}
-      .scrim{display:none}
-      #settingsBtn,#closeDrawer{display:none}
-      .map-top,.map-bottom{right:380px}
-    }
-
-    @media(prefers-reduced-motion:reduce){
-      *,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation-duration:.01ms!important}
-    }
-  </style>
+  <link rel="stylesheet" href="./style.css?v=2">
 </head>
 
-<body>
-<div class="app">
-  <header>
-    <div class="head-row">
-      <div class="logo" aria-hidden="true">🔥</div>
-      <div class="head-copy">
-        <h1>Feux autour de <span id="headerCity">Bordeaux</span></h1>
-        <div class="subtitle">Détections thermiques satellites quasi temps réel · NASA FIRMS</div>
+<body data-view="map">
+  <div class="app-shell">
+    <header class="topbar">
+      <button class="brand" id="brandHome" aria-label="Afficher la carte">
+        <span class="material-symbols-outlined brand-icon" aria-hidden="true">local_fire_department</span>
+        <span>EGX Incendies</span>
+      </button>
+      <div class="topbar-actions">
+        <span class="auto-label">Auto : 10 min</span>
+        <button class="icon-button refresh-button" id="refreshTop" aria-label="Actualiser les données" title="Actualiser">
+          <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
+        </button>
+        <button class="icon-button mobile-only" id="settingsBtn" aria-label="Ouvrir la configuration">
+          <span class="material-symbols-outlined" aria-hidden="true">tune</span>
+        </button>
       </div>
-      <div class="header-actions">
-        <button class="icon-btn" id="refreshTop" aria-label="Actualiser les données" title="Actualiser">↻</button>
-        <button class="icon-btn" id="settingsBtn" aria-label="Ouvrir les réglages" title="Réglages">☰</button>
-      </div>
+    </header>
+
+    <div class="workspace">
+      <main class="map-stage" id="mapStage">
+        <div id="map" aria-label="Carte interactive des détections thermiques autour de la ville sélectionnée"></div>
+
+        <div class="map-status" id="sourceStatus" role="status" aria-live="polite">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span id="sourceStatusText">En attente</span>
+        </div>
+
+        <div class="map-controls">
+          <button class="map-control" id="homeBtn" aria-label="Recentrer sur la ville sélectionnée" title="Recentrer">
+            <span class="material-symbols-outlined" aria-hidden="true">my_location</span>
+          </button>
+          <button class="map-control desktop-only" id="zoomIn" aria-label="Zoom avant">
+            <span class="material-symbols-outlined" aria-hidden="true">add</span>
+          </button>
+          <button class="map-control desktop-only" id="zoomOut" aria-label="Zoom arrière">
+            <span class="material-symbols-outlined" aria-hidden="true">remove</span>
+          </button>
+        </div>
+
+        <section class="map-summary" aria-labelledby="mapSummaryTitle">
+          <div class="sheet-handle" aria-hidden="true"></div>
+          <div class="summary-primary">
+            <div>
+              <div class="eyebrow" id="mapSummaryTitle">Détection la plus proche</div>
+              <div class="nearest-reading"><strong id="nearest">—</strong><span id="nearestDirection"></span></div>
+              <div class="summary-count" id="count">— détection NASA</div>
+            </div>
+            <div class="risk-badge" id="riskBadge">
+              <span class="material-symbols-outlined" aria-hidden="true">warning</span>
+              <span id="smokeRisk">—</span>
+            </div>
+          </div>
+
+          <div class="summary-grid">
+            <div class="summary-stat">
+              <span class="stat-icon material-symbols-outlined" aria-hidden="true">air</span>
+              <div><span>Vent</span><strong><i id="windArrow">↑</i> <span id="windSpeed">—</span></strong></div>
+            </div>
+            <div class="summary-stat summary-stat-action">
+              <span class="stat-icon material-symbols-outlined" aria-hidden="true">local_fire_department</span>
+              <div><span>Foyers probables</span><strong id="groupCount">—</strong></div>
+              <button class="summary-stat-trigger mobile-only" id="openDetections" type="button" aria-label="Voir les foyers détectés">
+                <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <div class="error-banner" id="headerError" role="alert"></div>
+      </main>
+
+      <aside class="side-panel" id="drawer" aria-label="Surveillance et configuration">
+        <div class="panel-tabs" role="tablist" aria-label="Sections">
+          <button class="panel-tab active" id="tabOverview" data-panel="overview" type="button" role="tab" aria-controls="panelOverview" aria-selected="true" tabindex="0">
+            <span class="material-symbols-outlined" aria-hidden="true">radar</span>
+            Surveillance
+          </button>
+          <button class="panel-tab" id="tabSettings" data-panel="settings" type="button" role="tab" aria-controls="panelSettings" aria-selected="false" tabindex="-1">
+            <span class="material-symbols-outlined" aria-hidden="true">settings</span>
+            Configuration
+          </button>
+          <button class="panel-tab" id="tabInfo" data-panel="info" type="button" role="tab" aria-controls="panelInfo" aria-selected="false" tabindex="-1">
+            <span class="material-symbols-outlined" aria-hidden="true">info</span>
+            Info
+          </button>
+        </div>
+
+        <div class="panel-page active" id="panelOverview" data-page="overview" role="tabpanel" aria-labelledby="tabOverview" aria-hidden="false">
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow">Zone surveillée</p>
+              <h1>Autour de <span id="headerCity">Bordeaux</span></h1>
+            </div>
+            <button class="icon-button mobile-only" id="closeDrawer" aria-label="Retour à la carte">
+              <span class="material-symbols-outlined" aria-hidden="true">close</span>
+            </button>
+          </div>
+
+          <div class="metrics-grid">
+            <article class="metric-card">
+              <span class="material-symbols-outlined metric-icon fire" aria-hidden="true">local_fire_department</span>
+              <span>Foyers probables</span>
+              <strong id="overviewGroupCount">—</strong>
+            </article>
+            <article class="metric-card">
+              <span class="material-symbols-outlined metric-icon smoke" aria-hidden="true">co2</span>
+              <span>Risque fumée</span>
+              <strong id="overviewSmokeRisk">—</strong>
+            </article>
+          </div>
+
+          <section class="content-section">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Activité récente</p>
+                <h2>Foyers détectés</h2>
+              </div>
+              <button class="small-button" id="fitDrawerBtn">Tout cadrer</button>
+            </div>
+            <p class="section-note">Les détections proches dans l’espace et dans le temps sont regroupées.</p>
+            <div class="feed" id="feed">
+              <div class="empty-state">
+                <span class="material-symbols-outlined" aria-hidden="true">satellite_alt</span>
+                En attente des données…
+              </div>
+            </div>
+          </section>
+
+          <section class="content-section compact-section">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Conditions</p>
+                <h2>Vent à <span id="windCity">Bordeaux</span></h2>
+              </div>
+            </div>
+            <div class="wind-card">
+              <div class="wind-compass" aria-hidden="true">
+                <span>N</span><i class="material-symbols-outlined" id="windNeedle">arrow_upward</i>
+              </div>
+              <div>
+                <strong id="windDetailSpeed">Données en attente</strong>
+                <span id="windDetailDirection">Direction et rafales</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="content-section compact-section">
+            <p class="eyebrow">Fumées possibles vers <span id="smokeCity">Bordeaux</span></p>
+            <strong class="smoke-status" id="smokeStatus">Données en attente</strong>
+            <p class="section-note" id="smokeExplanation">Analyse de la position des détections et du vent actuel.</p>
+          </section>
+        </div>
+
+        <div class="panel-page" id="panelSettings" data-page="settings" role="tabpanel" aria-labelledby="tabSettings" aria-hidden="true">
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow">Paramètres</p>
+              <h1>Configuration de la surveillance</h1>
+              <p>Définissez la zone, l’historique et les sources de l’analyse thermique.</p>
+            </div>
+          </div>
+
+          <section class="form-card">
+            <label for="cityQuery">Zone cible</label>
+            <div class="search-field">
+              <span class="material-symbols-outlined" aria-hidden="true">search</span>
+              <input id="cityQuery" type="search" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Marseille, Nice, Toulouse…">
+              <button class="small-button" id="searchCity">Rechercher</button>
+            </div>
+            <label class="result-field" id="cityResultWrap" hidden for="cityResults">Résultat</label>
+            <select id="cityResults" hidden></select>
+            <button class="primary-button" id="applyCity" hidden>Utiliser cette ville</button>
+            <div class="field-status" id="cityStatus" aria-live="polite"></div>
+          </section>
+
+          <section class="form-card">
+            <div class="label-row">
+              <label for="radius">Rayon de détection</label>
+              <output id="radiusValue" for="radius">100 km</output>
+            </div>
+            <input id="radius" class="range-input" type="range" min="50" max="250" step="50" value="100">
+            <div class="range-labels"><span>50 km</span><span>150 km</span><span>250 km</span></div>
+          </section>
+
+          <section class="form-card">
+            <label id="hoursLabel">Historique des données</label>
+            <div class="segmented-control" id="hoursControl" role="group" aria-labelledby="hoursLabel">
+              <button data-hours="24" type="button" aria-pressed="false">24 h</button>
+              <button data-hours="48" type="button" aria-pressed="false">48 h</button>
+              <button data-hours="72" type="button" class="active" aria-pressed="true">72 h</button>
+            </div>
+            <select id="hours" hidden aria-label="Historique">
+              <option value="24">24 heures</option>
+              <option value="48">48 heures</option>
+              <option value="72">72 heures</option>
+            </select>
+          </section>
+
+          <section class="form-card">
+            <div class="label-row">
+              <label for="mapKey">Clé NASA FIRMS</label>
+              <a class="help-link" href="https://firms.modaps.eosdis.nasa.gov/api/map_key/" target="_blank" rel="noopener" aria-label="Obtenir de l’aide pour la clé NASA FIRMS">
+                <span class="material-symbols-outlined" aria-hidden="true">help</span>
+              </a>
+            </div>
+            <div class="password-field">
+              <input id="mapKey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Collez votre clé MAP_KEY">
+              <button class="field-icon" id="toggleKey" type="button" aria-label="Afficher la clé">
+                <span class="material-symbols-outlined" aria-hidden="true">visibility</span>
+              </button>
+            </div>
+            <div class="button-row">
+              <button class="primary-button" id="saveKey">Enregistrer</button>
+              <button class="secondary-button" id="clearKey">Effacer</button>
+            </div>
+            <div class="field-status" id="keyStatus" aria-live="polite"></div>
+          </section>
+
+          <section class="form-card">
+            <label for="displayMode">Affichage cartographique</label>
+            <select id="displayMode">
+              <option value="points+hulls">Points + tendance</option>
+              <option value="points">Points uniquement</option>
+              <option value="hulls">Tendance uniquement</option>
+            </select>
+            <p class="field-help">Les zones colorées indiquent une tendance visuelle, jamais un périmètre officiel.</p>
+          </section>
+
+          <button class="primary-button launch-button" id="refreshBtn">
+            <span class="material-symbols-outlined" aria-hidden="true">satellite_alt</span>
+            Lancer la carte
+          </button>
+        </div>
+
+        <div class="panel-page" id="panelInfo" data-page="info" role="tabpanel" aria-labelledby="tabInfo" aria-hidden="true">
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow">Documentation</p>
+              <h1>Information &amp; aide</h1>
+              <p>Comprendre l’application et les données.</p>
+            </div>
+          </div>
+
+          <section class="info-card">
+            <div class="card-title">
+              <span class="material-symbols-outlined" aria-hidden="true">info</span>
+              <h2>À propos</h2>
+            </div>
+            <p>EGX Incendies centralise les anomalies thermiques détectées par les satellites VIIRS et MODIS. L’outil est citoyen, gratuit et conçu pour une lecture rapide.</p>
+            <div class="theme-row">
+              <span>Thème de l’application</span>
+              <button class="icon-button" id="themeToggle" aria-label="Changer de thème">
+                <span class="material-symbols-outlined" aria-hidden="true">dark_mode</span>
+              </button>
+            </div>
+          </section>
+
+          <section class="info-card">
+            <div class="card-title">
+              <span class="material-symbols-outlined" aria-hidden="true">format_list_bulleted</span>
+              <h2>Légende des marqueurs</h2>
+            </div>
+            <p>L’âge de la détection détermine sa couleur sur la carte.</p>
+            <div class="legend-list">
+              <div><i class="legend-marker critical"></i><span><strong>Critique</strong>Moins de 3 heures</span></div>
+              <div><i class="legend-marker warning"></i><span><strong>Alerte</strong>Entre 3 et 12 heures</span></div>
+              <div><i class="legend-marker old"></i><span><strong>Ancien</strong>Entre 12 et 24 heures</span></div>
+              <div><i class="legend-marker archive"></i><span><strong>Archive</strong>Entre 24 et 72 heures</span></div>
+            </div>
+          </section>
+
+          <section class="info-card">
+            <div class="card-title">
+              <span class="material-symbols-outlined" aria-hidden="true">api</span>
+              <h2>Clé API NASA FIRMS</h2>
+            </div>
+            <p>Une clé gratuite est nécessaire pour interroger les détections thermiques.</p>
+            <ol>
+              <li>Créez un compte Earthdata.</li>
+              <li>Accédez au portail NASA FIRMS.</li>
+              <li>Générez une « Map Key ».</li>
+              <li>Copiez-la dans la configuration.</li>
+            </ol>
+            <a class="primary-button link-button" href="https://firms.modaps.eosdis.nasa.gov/api/map_key/" target="_blank" rel="noopener">
+              Obtenir une clé API
+              <span class="material-symbols-outlined" aria-hidden="true">open_in_new</span>
+            </a>
+          </section>
+
+          <section class="safety-note">
+            <span class="material-symbols-outlined" aria-hidden="true">emergency_home</span>
+            <p><strong>Ce service ne remplace pas une alerte officielle.</strong> Une anomalie thermique peut avoir une autre origine qu’un incendie. En cas de danger immédiat : <strong>112</strong> ou <strong>18</strong>.</p>
+          </section>
+
+          <div class="external-links">
+            <a href="https://www.openstreetmap.org/" target="_blank" rel="noopener">
+              <span class="material-symbols-outlined" aria-hidden="true">map</span>
+              OpenStreetMap
+            </a>
+            <a href="https://open-meteo.com/" target="_blank" rel="noopener">
+              <span class="material-symbols-outlined" aria-hidden="true">air</span>
+              Open‑Meteo
+            </a>
+          </div>
+        </div>
+      </aside>
     </div>
 
-    <div class="metrics">
-      <div class="metric">
-        <div class="k">Foyers probables</div>
-        <div class="v" id="groupCount">—</div>
-        <div class="metric-sub" id="count">— détection</div>
-      </div>
-      <div class="metric"><div class="k">Risque fumée</div><div class="v" id="smokeRisk">—</div></div>
-      <div class="metric"><div class="k">Plus proche</div><div class="v" id="nearest">—</div></div>
-      <div class="metric"><div class="k">Vent actuel</div><div class="v wind-value"><span id="windArrow">↑</span> <span id="windSpeed">—</span></div></div>
-    </div>
-    <div class="error" id="headerError"></div>
-  </header>
-
-  <main>
-    <div id="map" aria-label="Carte interactive des détections thermiques autour de la ville sélectionnée"></div>
-
-    <div class="map-top">
-      <div class="pill" id="sourceStatus">Initialisation…</div>
-    </div>
-
-    <div class="map-bottom">
-      <div class="legend" aria-label="Légende temporelle">
-        <div class="legend-row"><span class="dot" style="background:#ff3d2e"></span><span>&lt; 3 h</span></div>
-        <div class="legend-row"><span class="dot" style="background:#ff9a3c"></span><span>3–12 h</span></div>
-        <div class="legend-row"><span class="dot" style="background:#ffd85a"></span><span>12–24 h</span></div>
-        <div class="legend-row"><span class="dot" style="background:#72b7ff"></span><span>24–72 h</span></div>
-        <div class="legend-row"><span style="font-size:11px">🔥</span><span>Foyer probable regroupé</span></div>
-        <div class="legend-row"><span style="display:inline-block;width:12px;border-top:1px dashed #f08b45"></span><span>Contour indicatif au zoom</span></div>
-      </div>
-
-      <div class="map-buttons">
-        <button class="icon-btn" id="homeBtn" aria-label="Recentrer sur la ville sélectionnée" title="Recentrer sur la ville sélectionnée">⌂</button>
-        <button class="icon-btn" id="zoomIn" aria-label="Zoom avant">＋</button>
-        <button class="icon-btn" id="zoomOut" aria-label="Zoom arrière">−</button>
-      </div>
-    </div>
+    <nav class="bottom-nav" aria-label="Navigation principale">
+      <button class="active" data-nav="map" type="button" aria-current="page">
+        <span class="material-symbols-outlined" aria-hidden="true">map</span>
+        <span>Carte</span>
+      </button>
+      <button data-nav="settings" type="button">
+        <span class="material-symbols-outlined" aria-hidden="true">settings</span>
+        <span>Configuration</span>
+      </button>
+      <button data-nav="info" type="button">
+        <span class="material-symbols-outlined" aria-hidden="true">info</span>
+        <span>Info</span>
+      </button>
+    </nav>
 
     <div class="scrim" id="scrim"></div>
 
-    <aside class="drawer" id="drawer" aria-label="Réglages et informations">
-      <div class="drawer-head">
-        <h2>Réglages</h2>
-        <button class="icon-btn" id="closeDrawer" aria-label="Fermer les réglages">×</button>
+    <section class="detail-view" id="detailView" role="dialog" aria-modal="true" aria-labelledby="detailTitle" aria-hidden="true" inert>
+      <header class="detail-header">
+        <button class="icon-button" id="closeDetail" aria-label="Fermer le détail">
+          <span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>
+        </button>
+        <h2 id="detailTitle">Détails du foyer</h2>
+        <span></span>
+      </header>
+      <div class="detail-content">
+        <div class="detail-hero">
+          <div id="detailMap" aria-label="Localisation du foyer"></div>
+          <div class="detail-summary">
+            <div>
+              <h3 id="detailName">Foyer probable</h3>
+              <p id="detailCoordinates">—</p>
+            </div>
+            <span class="risk-badge" id="detailRisk">—</span>
+          </div>
+          <div class="detail-actions">
+            <button class="primary-button" id="shareAlert">
+              <span class="material-symbols-outlined" aria-hidden="true">share</span>
+              Partager l’alerte
+            </button>
+            <a class="secondary-button icon-link" id="directionsLink" target="_blank" rel="noopener" aria-label="Ouvrir l’itinéraire">
+              <span class="material-symbols-outlined" aria-hidden="true">directions</span>
+            </a>
+          </div>
+        </div>
+        <section>
+          <p class="eyebrow" id="detailDetectionCount">Détections dans le foyer</p>
+          <div class="detail-detections" id="detailDetections"></div>
+        </section>
       </div>
+    </section>
 
-      <section class="card">
-        <h3>Ville observée</h3>
-        <div class="notice">Recherchez une ville, puis choisissez-la. Le rayon reste modifiable juste en dessous.</div>
-        <div class="city-search" style="margin-top:9px">
-          <input id="cityQuery" type="search" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Marseille, Nice, Toulouse…">
-          <button class="primary" id="searchCity">Rechercher</button>
-        </div>
-        <label class="city-result" id="cityResultWrap" hidden>Résultat
-          <select id="cityResults"></select>
-        </label>
-        <button class="primary" id="applyCity" hidden style="width:100%;margin-top:8px">Utiliser cette ville</button>
-        <div class="city-status" id="cityStatus" aria-live="polite"></div>
-      </section>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </div>
 
-      <section class="card">
-        <h3>Clé NASA FIRMS</h3>
-        <div class="notice">La clé est gratuite et reste uniquement enregistrée sur cet appareil.</div>
-        <label style="margin-top:9px">MAP_KEY
-          <input id="mapKey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Collez votre clé">
-        </label>
-        <div class="actions">
-          <button class="primary" id="saveKey">Enregistrer</button>
-          <button class="secondary" id="clearKey">Effacer</button>
-        </div>
-        <div class="notice" style="margin-top:9px">
-          Obtenir une clé : <a href="https://firms.modaps.eosdis.nasa.gov/api/map_key/" target="_blank" rel="noopener">NASA FIRMS</a>
-        </div>
-      </section>
-
-      <section class="card">
-        <h3>Zone observée</h3>
-        <div class="row">
-          <label>Rayon
-            <select id="radius">
-              <option value="50">50 km</option>
-              <option value="100" selected>100 km</option>
-              <option value="150">150 km</option>
-              <option value="250">250 km</option>
-            </select>
-          </label>
-          <label>Historique
-            <select id="hours">
-              <option value="24">24 heures</option>
-              <option value="48">48 heures</option>
-              <option value="72" selected>72 heures</option>
-            </select>
-          </label>
-        </div>
-        <div class="actions">
-          <button class="primary" id="refreshBtn">Actualiser</button>
-          <button class="secondary" id="fitDrawerBtn">Cadrer</button>
-        </div>
-      </section>
-
-      <section class="card">
-        <h3>Affichage</h3>
-        <label>Calques
-          <select id="displayMode">
-            <option value="points+hulls" selected>Points + tendance</option>
-            <option value="points">Points uniquement</option>
-            <option value="hulls">Tendance uniquement</option>
-          </select>
-        </label>
-        <div class="notice" style="margin-top:9px">
-          Les zones colorées relient des détections proches d'une même période. Elles indiquent une tendance visuelle, pas un périmètre officiel du feu.
-        </div>
-      </section>
-
-      <section class="card">
-        <h3>Vent actuel à <span id="windCity">Bordeaux</span></h3>
-        <div class="wind-detail">
-          <div class="wind-compass" aria-hidden="true">
-            <div class="wind-needle" id="windNeedle">↑</div>
-          </div>
-          <div>
-            <div class="feed-main"><strong id="windDetailSpeed">Données en attente</strong></div>
-            <div class="feed-sub" id="windDetailDirection">Direction et rafales</div>
-          </div>
-        </div>
-        <div class="notice" style="margin-top:9px">
-          Le vent donne un contexte utile. L'indicateur de fumée combine sa direction avec la position des détections, mais ne constitue ni une mesure de qualité de l'air ni une prévision officielle.
-        </div>
-      </section>
-
-      <section class="card">
-        <h3>Fumées possibles vers <span id="smokeCity">Bordeaux</span></h3>
-        <div class="smoke-detail">
-          <span class="smoke-status" id="smokeStatus">Données en attente</span>
-          <div class="feed-sub" id="smokeExplanation">Analyse de la position des détections et du vent actuel.</div>
-        </div>
-        <div class="notice" style="margin-top:9px">
-          Indicateur pédagogique, non officiel. Il estime si le vent peut transporter des fumées depuis des détections récentes vers la ville observée. Il ne mesure pas directement la qualité de l'air.
-        </div>
-      </section>
-
-      <section class="card">
-        <h3>Foyers détectés</h3>
-        <div class="feed-help">Les détections proches dans l’espace et dans le temps sont regroupées pour faciliter la lecture.</div>
-        <div class="feed" id="feed"><div class="empty">En attente des données…</div></div>
-      </section>
-
-      <section class="card">
-        <div class="notice">
-          <strong>Important :</strong> une détection satellite peut aussi correspondre à un brûlage agricole, un site industriel ou une autre source de chaleur. Les passages satellites ne sont pas continus. En cas de danger immédiat : <strong>112</strong> ou <strong>18</strong>. Vent fourni par <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>.
-        </div>
-      </section>
-    </aside>
-  </main>
-</div>
-
-<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
-<script>
-(() => {
-  "use strict";
-
-  const DEFAULT_LOCATION = {name:"Bordeaux", lat:44.8378, lon:-0.5792};
-  const STORAGE_KEY = "egx_incendies_firms_key";
-  const SETTINGS_KEY = "egx_incendies_settings";
-  const SOURCES = ["VIIRS_SNPP_NRT","VIIRS_NOAA20_NRT","VIIRS_NOAA21_NRT","MODIS_NRT"];
-
-  const $ = id => document.getElementById(id);
-  const state = {
-    mapKey: localStorage.getItem(STORAGE_KEY) || "",
-    points: [],
-    fireGroups: [],
-    wind: null,
-    lastFetch: null,
-    loading: false,
-    abortController: null,
-    settings: {radius:100,hours:72,mode:"points+hulls",location:{...DEFAULT_LOCATION}}
-  };
-
-  try{
-    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
-    state.settings = {...state.settings, ...saved};
-    if(!saved.location || !Number.isFinite(+saved.location.lat) || !Number.isFinite(+saved.location.lon)){
-      state.settings.location = {...DEFAULT_LOCATION};
-    }else{
-      state.settings.location = {
-        name:String(saved.location.name || "Ville sélectionnée"),
-        lat:+saved.location.lat,
-        lon:+saved.location.lon
-      };
-    }
-  }catch{}
-
-  const currentLocation = () => state.settings.location;
-
-  const map = L.map("map", {
-    center:[currentLocation().lat,currentLocation().lon],
-    zoom:8,
-    minZoom:5,
-    maxZoom:14,
-    zoomControl:false,
-    attributionControl:true,
-    preferCanvas:true,
-    inertia:true,
-    inertiaDeceleration:2800,
-    inertiaMaxSpeed:1800,
-    zoomAnimation:true,
-    fadeAnimation:true,
-    markerZoomAnimation:false,
-    touchZoom:true,
-    doubleClickZoom:true,
-    scrollWheelZoom:true
-  });
-
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom:19,
-    updateWhenIdle:true,
-    updateWhenZooming:false,
-    keepBuffer:2,
-    detectRetina:false,
-    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'
-  }).addTo(map);
-
-  const renderer = L.canvas({padding:.35,tolerance:6});
-  const pointLayer = L.layerGroup().addTo(map);
-  const hullLayer = L.layerGroup().addTo(map);
-  const fireGroupLayer = L.layerGroup().addTo(map);
-
-  const cityLayer = L.layerGroup().addTo(map);
-
-  function renderCityMarker(){
-    cityLayer.clearLayers();
-    const location=currentLocation();
-    L.circleMarker([location.lat,location.lon],{
-      renderer,radius:5,color:"#111",weight:2,fillColor:"#fff",fillOpacity:1,interactive:false
-    }).bindTooltip(escapeHtml(location.name),{
-      permanent:true,direction:"right",offset:[7,-2],className:"city-label"
-    }).addTo(cityLayer);
-    $("headerCity").textContent=location.name;
-    document.title=`EGX Incendies — ${location.name}`;
-  }
-
-  function saveSettings(){
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings));
-  }
-
-  function colorForAge(h){
-    if(h<3) return "#ff3d2e";
-    if(h<12) return "#ff9a3c";
-    if(h<24) return "#ffd85a";
-    return "#72b7ff";
-  }
-
-  function rad(d){return d*Math.PI/180}
-  function haversine(a,b){
-    const R=6371,dLat=rad(b.lat-a.lat),dLon=rad(b.lon-a.lon);
-    const x=Math.sin(dLat/2)**2+Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(dLon/2)**2;
-    return 2*R*Math.asin(Math.sqrt(x));
-  }
-
-  function bearing(from,to){
-    const lat1=rad(from.lat),lat2=rad(to.lat),dLon=rad(to.lon-from.lon);
-    const y=Math.sin(dLon)*Math.cos(lat2);
-    const x=Math.cos(lat1)*Math.sin(lat2)-Math.sin(lat1)*Math.cos(lat2)*Math.cos(dLon);
-    return (Math.atan2(y,x)*180/Math.PI+360)%360;
-  }
-
-  function angleDiff(a,b){
-    return Math.abs(((a-b+540)%360)-180);
-  }
-
-  function smokeRisk(){
-    const location=currentLocation();
-    if(!state.wind || !state.points.length){
-      return {
-        level:"Indisponible",
-        color:"#b8aea4",
-        explanation:state.points.length
-          ?"Vent indisponible : le trajet potentiel des fumées ne peut pas être estimé."
-          :"Aucune détection récente à analyser dans la zone choisie."
-      };
-    }
-
-    const recent=state.points.filter(p=>(Date.now()-p.time)<=24*36e5);
-    if(!recent.length){
-      return {
-        level:"Faible",
-        color:"#74d99f",
-        explanation:"Aucune détection de moins de 24 heures dans la zone observée."
-      };
-    }
-
-    const nearest=Math.min(...recent.map(p=>haversine(location,p)));
-    if(nearest<=5){
-      return {
-        level:"Très élevé",
-        color:"#ff493b",
-        explanation:`Des détections récentes se trouvent à environ ${Math.max(0,Math.round(nearest))} km de la ville. La proximité immédiate domine l'estimation, quelle que soit la direction du vent.`
-      };
-    }
-
-    // Open-Meteo gives the meteorological direction the wind comes FROM.
-    // Smoke therefore travels approximately toward direction + 180°.
-    const smokeTravel=(state.wind.direction+180)%360;
-    let score=0;
-    let alignedCount=0;
-    let closestAligned=Infinity;
-
-    for(const p of recent){
-      const distance=haversine(p,location);
-      if(distance>150) continue;
-
-      const towardCity=bearing(p,location);
-      const diff=angleDiff(smokeTravel,towardCity);
-      if(diff>75) continue;
-
-      const alignment=Math.max(0,Math.cos(rad(diff)));
-      const ageHours=(Date.now()-p.time)/36e5;
-      const freshness=Math.max(0.15,1-ageHours/30);
-      const proximity=Math.max(0.08,1-distance/170);
-      const frp=Number.isFinite(p.frp) ? Math.min(2,0.65+p.frp/80) : 0.75;
-
-      score+=alignment*freshness*proximity*frp;
-      alignedCount++;
-      closestAligned=Math.min(closestAligned,distance);
-    }
-
-    if(!alignedCount || score<0.8){
-      return {
-        level:"Faible",
-        color:"#74d99f",
-        explanation:"Le vent actuel ne dirige pas nettement les fumées des détections récentes vers la ville."
-      };
-    }
-
-    const direction=compassDirection(state.wind.direction);
-    if(score>=8 || closestAligned<=20){
-      return {
-        level:"Élevé",
-        color:"#ff493b",
-        explanation:`Le vent venant du ${direction.toLowerCase()} peut transporter des fumées depuis ${alignedCount} détection${alignedCount>1?"s":""} récente${alignedCount>1?"s":""}. La plus proche dans cet axe est à environ ${Math.round(closestAligned)} km.`
-      };
-    }
-
-    return {
-      level:"Modéré",
-      color:"#ffc14d",
-      explanation:`Certaines détections récentes se trouvent dans l'axe du vent. La plus proche est à environ ${Math.round(closestAligned)} km ; la situation mérite d'être surveillée.`
-    };
-  }
-
-  function splitCSV(line){
-    const out=[];let cur="",q=false;
-    for(let i=0;i<line.length;i++){
-      const ch=line[i];
-      if(ch==='"'){
-        if(q&&line[i+1]==='"'){cur+='"';i++}else q=!q;
-      }else if(ch===","&&!q){out.push(cur);cur=""}
-      else cur+=ch;
-    }
-    out.push(cur);return out;
-  }
-
-  function parseCSV(text,sensor){
-    const clean=text.trim();
-    if(!clean || clean.startsWith("<")) return [];
-    const lines=clean.split(/\r?\n/);
-    if(lines.length<2) return [];
-    const headers=splitCSV(lines[0]).map(x=>x.trim().toLowerCase());
-    const idx=n=>headers.indexOf(n);
-    const out=[];
-    for(let i=1;i<lines.length;i++){
-      const c=splitCSV(lines[i]);
-      const lat=+c[idx("latitude")],lon=+c[idx("longitude")];
-      const date=c[idx("acq_date")],raw=String(c[idx("acq_time")]||"").padStart(4,"0");
-      if(!Number.isFinite(lat)||!Number.isFinite(lon)||!date) continue;
-      const time=Date.parse(`${date}T${raw.slice(0,2)}:${raw.slice(2)}:00Z`);
-      if(!Number.isFinite(time)) continue;
-      out.push({
-        lat,lon,time,sensor,
-        confidence:c[idx("confidence")]||"",
-        frp:Number.isFinite(+c[idx("frp")]) ? +c[idx("frp")] : null
-      });
-    }
-    return out;
-  }
-
-  function dedupe(points){
-    const seen=new Set();
-    return points.filter(p=>{
-      const key=`${p.lat.toFixed(4)}|${p.lon.toFixed(4)}|${Math.round(p.time/60000)}`;
-      if(seen.has(key)) return false;
-      seen.add(key);return true;
-    });
-  }
-
-  function bbox(radius){
-    const dLat=radius/111;
-    const dLon=radius/(111*Math.cos(rad(currentLocation().lat)));
-    const location=currentLocation();
-    return [location.lon-dLon,location.lat-dLat,location.lon+dLon,location.lat+dLat].join(",");
-  }
-
-  async function fetchSource(source, signal){
-    const days=Math.max(1,Math.ceil(state.settings.hours/24));
-    const url=`https://firms.modaps.eosdis.nasa.gov/api/area/csv/${encodeURIComponent(state.mapKey)}/${source}/${bbox(state.settings.radius)}/${days}`;
-    const res=await fetch(url,{cache:"no-store",signal});
-    if(!res.ok) throw new Error(`${source}: erreur ${res.status}`);
-    const text=await res.text();
-    if(text.trim().startsWith("<")) throw new Error(`${source}: réponse invalide`);
-    return parseCSV(text,source.replaceAll("_"," "));
-  }
-
-  function compassDirection(degrees){
-    const labels=["N","NE","E","SE","S","SO","O","NO"];
-    return labels[Math.round(((degrees%360)+360)%360/45)%8];
-  }
-
-  async function fetchWind(signal){
-    const location=currentLocation();
-    const url=new URL("https://api.open-meteo.com/v1/forecast");
-    url.searchParams.set("latitude",location.lat);
-    url.searchParams.set("longitude",location.lon);
-    url.searchParams.set("current","wind_speed_10m,wind_direction_10m,wind_gusts_10m");
-    url.searchParams.set("wind_speed_unit","kmh");
-    url.searchParams.set("timezone","auto");
-
-    const res=await fetch(url.toString(),{cache:"no-store",signal});
-    if(!res.ok) throw new Error(`météo ${res.status}`);
-    const data=await res.json();
-    const current=data.current||{};
-    const speed=+current.wind_speed_10m;
-    const direction=+current.wind_direction_10m;
-    const gusts=+current.wind_gusts_10m;
-    if(!Number.isFinite(speed)||!Number.isFinite(direction)) throw new Error("données de vent incomplètes");
-    return {speed,direction,gusts:Number.isFinite(gusts)?gusts:null,time:current.time||null};
-  }
-
-  async function refresh(){
-    if(state.loading) return;
-    clearError();
-
-    if(!state.mapKey){
-      showError("Ajoutez votre clé gratuite NASA FIRMS dans les réglages pour charger les données.");
-      openDrawer();
-      updateUI();
-      return;
-    }
-
-    state.loading=true;
-    setLoading(true);
-    state.abortController?.abort();
-    state.abortController=new AbortController();
-
-    try{
-      const [fireSettled,windSettled]=await Promise.all([
-        Promise.allSettled(SOURCES.map(src=>fetchSource(src,state.abortController.signal))),
-        Promise.allSettled([fetchWind(state.abortController.signal)])
-      ]);
-      const successful=fireSettled.filter(x=>x.status==="fulfilled").flatMap(x=>x.value);
-      if(!successful.length){
-        const reason=fireSettled.find(x=>x.status==="rejected")?.reason?.message || "Aucune source disponible";
-        throw new Error(reason);
-      }
-      if(windSettled[0]?.status==="fulfilled") state.wind=windSettled[0].value;
-
-      const cut=Date.now()-state.settings.hours*36e5;
-      state.points=dedupe(successful)
-        .filter(p=>p.time>=cut && haversine(currentLocation(),p)<=state.settings.radius)
-        .sort((a,b)=>b.time-a.time);
-      state.lastFetch=new Date();
-
-      renderLayers();
-      updateUI();
-
-      const failed=fireSettled.filter(x=>x.status==="rejected").length;
-      if(failed) showError(`${failed} source${failed>1?"s":""} satellite${failed>1?"s":""} indisponible${failed>1?"s":""}, mais les autres données ont été chargées.`);
-    }catch(err){
-      if(err.name!=="AbortError"){
-        state.points=[];
-        renderLayers();
-        updateUI();
-        showError(`Impossible de charger les données : ${err.message}. Vérifiez la clé et la connexion.`);
-      }
-    }finally{
-      state.loading=false;
-      setLoading(false);
-    }
-  }
-
-  function setLoading(on){
-    const buttons=[$("refreshTop"),$("refreshBtn")];
-    buttons.forEach(btn=>btn.disabled=on);
-    $("refreshTop").innerHTML=on?'<span class="loading-spin"></span>':"↻";
-    $("refreshBtn").textContent=on?"Chargement…":"Actualiser";
-    $("sourceStatus").textContent=on?"Connexion aux satellites…":(state.lastFetch?`NASA FIRMS · ${new Intl.DateTimeFormat("fr-FR",{hour:"2-digit",minute:"2-digit"}).format(state.lastFetch)}`:"En attente");
-  }
-
-  function hull(points){
-    if(points.length<3) return points;
-    const pts=[...points].sort((a,b)=>a.x===b.x?a.y-b.y:a.x-b.x);
-    const cross=(o,a,b)=>(a.x-o.x)*(b.y-o.y)-(a.y-o.y)*(b.x-o.x);
-    const lower=[];
-    for(const p of pts){while(lower.length>=2&&cross(lower.at(-2),lower.at(-1),p)<=0)lower.pop();lower.push(p)}
-    const upper=[];
-    for(const p of [...pts].reverse()){while(upper.length>=2&&cross(upper.at(-2),upper.at(-1),p)<=0)upper.pop();upper.push(p)}
-    lower.pop();upper.pop();return lower.concat(upper);
-  }
-
-  function clusterLatLng(points,maxKm){
-    const groups=[],used=new Set();
-    for(let i=0;i<points.length;i++){
-      if(used.has(i)) continue;
-      const group=[points[i]];used.add(i);let changed=true;
-      while(changed){
-        changed=false;
-        for(let j=0;j<points.length;j++){
-          if(used.has(j)) continue;
-          if(group.some(p=>haversine(p,points[j])<=maxKm)){
-            group.push(points[j]);used.add(j);changed=true;
-          }
-        }
-      }
-      groups.push(group);
-    }
-    return groups;
-  }
-
-  function buildFireGroups(points){
-    if(!points.length) return [];
-
-    // A detection joins another when both are within 5 km and 18 hours.
-    // Transitive links let successive satellite passes describe one evolving event.
-    const maxKm=5;
-    const maxMs=18*36e5;
-    const latStep=maxKm/111;
-    const lonStep=maxKm/(111*Math.max(.2,Math.cos(rad(currentLocation().lat))));
-    const timeStep=6*36e5;
-    const parent=points.map((_,i)=>i);
-    const rank=points.map(()=>0);
-    const buckets=new Map();
-
-    const find=i=>{
-      while(parent[i]!==i){
-        parent[i]=parent[parent[i]];
-        i=parent[i];
-      }
-      return i;
-    };
-    const union=(a,b)=>{
-      let ra=find(a),rb=find(b);
-      if(ra===rb) return;
-      if(rank[ra]<rank[rb]) [ra,rb]=[rb,ra];
-      parent[rb]=ra;
-      if(rank[ra]===rank[rb]) rank[ra]++;
-    };
-    const key=(x,y,t)=>`${x}|${y}|${t}`;
-
-    for(let i=0;i<points.length;i++){
-      const p=points[i];
-      const x=Math.floor(p.lon/lonStep);
-      const y=Math.floor(p.lat/latStep);
-      const t=Math.floor(p.time/timeStep);
-
-      for(let dx=-1;dx<=1;dx++){
-        for(let dy=-1;dy<=1;dy++){
-          for(let dt=-3;dt<=3;dt++){
-            const candidates=buckets.get(key(x+dx,y+dy,t+dt));
-            if(!candidates) continue;
-            for(const j of candidates){
-              const q=points[j];
-              if(Math.abs(p.time-q.time)<=maxMs && haversine(p,q)<=maxKm) union(i,j);
-            }
-          }
-        }
-      }
-
-      const ownKey=key(x,y,t);
-      if(!buckets.has(ownKey)) buckets.set(ownKey,[]);
-      buckets.get(ownKey).push(i);
-    }
-
-    const components=new Map();
-    for(let i=0;i<points.length;i++){
-      const root=find(i);
-      if(!components.has(root)) components.set(root,[]);
-      components.get(root).push(points[i]);
-    }
-
-    return [...components.values()].map((items,index)=>{
-      items.sort((a,b)=>b.time-a.time);
-      const lats=items.map(p=>p.lat),lons=items.map(p=>p.lon);
-      const minLat=Math.min(...lats),maxLat=Math.max(...lats);
-      const minLon=Math.min(...lons),maxLon=Math.max(...lons);
-      const center={
-        lat:items.reduce((sum,p)=>sum+p.lat,0)/items.length,
-        lon:items.reduce((sum,p)=>sum+p.lon,0)/items.length
-      };
-      const extent=items.length>1
-        ?haversine({lat:minLat,lon:minLon},{lat:maxLat,lon:maxLon})
-        :0;
-      const frps=items.map(p=>p.frp).filter(Number.isFinite);
-      return {
-        id:index,
-        points:items,
-        count:items.length,
-        latest:items[0].time,
-        earliest:items.at(-1).time,
-        center,
-        bounds:[[minLat,minLon],[maxLat,maxLon]],
-        nearest:Math.min(...items.map(p=>haversine(currentLocation(),p))),
-        extent,
-        sensors:[...new Set(items.map(p=>p.sensor))],
-        maxFrp:frps.length?Math.max(...frps):null
-      };
-    }).sort((a,b)=>b.latest-a.latest || b.count-a.count);
-  }
-
-  function focusFireGroup(group){
-    if(!group) return;
-    if(group.count===1){
-      map.flyTo([group.center.lat,group.center.lon],Math.max(map.getZoom(),11),{duration:.45});
-      return;
-    }
-    const bounds=L.latLngBounds(group.bounds);
-    map.fitBounds(bounds,{padding:[50,50],maxZoom:12,animate:true,duration:.45});
-  }
-
-  function renderFireGroupOverlays(){
-    fireGroupLayer.clearLayers();
-
-    const zoom=map.getZoom();
-    const significant=state.fireGroups
-      .filter(group=>group.count>=15)
-      .sort((a,b)=>b.count-a.count)
-      .slice(0,zoom<=8?10:16);
-
-    for(const group of significant){
-      const age=(Date.now()-group.latest)/36e5;
-      const color=colorForAge(age);
-      const radiusMeters=Math.max(
-        1200,
-        Math.min(15000,900+group.extent*300+Math.sqrt(group.count)*26)
-      );
-
-      // Halo léger : donne une sensation d'échelle sans masquer la carte.
-      L.circle([group.center.lat,group.center.lon],{
-        radius:radiusMeters,
-        color,
-        weight:1.25,
-        opacity:.42,
-        fillColor:color,
-        fillOpacity:zoom<=9?.045:.025,
-        interactive:false
-      }).addTo(fireGroupLayer);
-
-      // Contour très discret uniquement pour les grands groupes et à zoom rapproché.
-      if(group.count>=100 && zoom>=9){
-        const outline=hull(group.points.map(p=>({x:p.lon,y:p.lat,p})));
-        if(outline.length>=3){
-          L.polygon(outline.map(q=>[q.p.lat,q.p.lon]),{
-            color,
-            weight:1.5,
-            opacity:.62,
-            fill:false,
-            dashArray:"5 6",
-            lineJoin:"round",
-            interactive:false
-          }).addTo(fireGroupLayer);
-        }
-      }
-
-      L.circleMarker([group.center.lat,group.center.lon],{
-        radius:zoom<=9?8:6,
-        color:"#2b160f",
-        weight:1.5,
-        opacity:.95,
-        fillColor:color,
-        fillOpacity:.96,
-        interactive:true
-      })
-      .bindTooltip(`🔥 ${group.count.toLocaleString("fr-FR")}`,{
-        permanent:zoom<=10,
-        direction:"top",
-        offset:[0,-7],
-        className:"fire-group-label"
-      })
-      .on("click",()=>focusFireGroup(group))
-      .addTo(fireGroupLayer);
-    }
-  }
-
-  function renderLayers(){
-    pointLayer.clearLayers();
-    hullLayer.clearLayers();
-    state.fireGroups=buildFireGroups(state.points);
-
-    const now=Date.now();
-    const mode=state.settings.mode;
-
-    if(mode!=="hulls"){
-      const batch=L.layerGroup();
-      for(const p of state.points){
-        const age=(now-p.time)/36e5;
-        L.circleMarker([p.lat,p.lon],{
-          renderer,
-          radius:age<3?5.2:4,
-          color:"#2b160f",weight:1,opacity:.9,
-          fillColor:colorForAge(age),fillOpacity:.94,
-          interactive:false
-        }).addTo(batch);
-      }
-      batch.addTo(pointLayer);
-    }
-
-    if(mode!=="points"){
-      const bins=[
-        {min:0,max:6,color:"#ff3d2e",opacity:.20},
-        {min:6,max:18,color:"#ff9a3c",opacity:.16},
-        {min:18,max:36,color:"#ffd85a",opacity:.13},
-        {min:36,max:73,color:"#72b7ff",opacity:.10}
-      ];
-      for(const bin of bins){
-        const pts=state.points.filter(p=>{
-          const h=(now-p.time)/36e5;return h>=bin.min&&h<bin.max;
-        });
-        for(const group of clusterLatLng(pts,7)){
-          if(group.length<3) continue;
-          const local=group.map(p=>({x:p.lon,y:p.lat,p}));
-          const hp=hull(local);
-          L.polygon(hp.map(q=>[q.p.lat,q.p.lon]),{
-            renderer,color:bin.color,weight:2,dashArray:"6 5",
-            fillColor:bin.color,fillOpacity:bin.opacity,
-            interactive:false
-          }).addTo(hullLayer);
-        }
-      }
-    }
-
-    renderFireGroupOverlays();
-  }
-
-  function relTime(t){
-    const m=Math.max(0,Math.round((Date.now()-t)/60000));
-    if(m<60) return `${m} min`;
-    const h=Math.floor(m/60),mm=m%60;
-    return mm?`${h} h ${mm}`:`${h} h`;
-  }
-
-  function fmtDate(t){
-    return new Intl.DateTimeFormat("fr-FR",{
-      day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",
-      timeZone:"Europe/Paris"
-    }).format(new Date(t));
-  }
-
-  function escapeHtml(value){
-    return String(value??"").replace(/[&<>"']/g,m=>({
-      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
-    }[m]));
-  }
-
-  function updateUI(){
-    const probableGroups=state.fireGroups.filter(group=>group.count>1);
-    $("groupCount").textContent=probableGroups.length.toLocaleString("fr-FR");
-    $("count").textContent=`${state.points.length.toLocaleString("fr-FR")} détection${state.points.length>1?"s":""} NASA`;
-    const smoke=smokeRisk();
-    $("smokeRisk").textContent=smoke.level;
-    $("smokeRisk").style.color=smoke.color;
-    $("smokeCity").textContent=currentLocation().name;
-    $("smokeStatus").textContent=smoke.level;
-    $("smokeStatus").style.color=smoke.color;
-    $("smokeExplanation").textContent=smoke.explanation;
-    const distances=state.points.map(p=>haversine(currentLocation(),p));
-    $("nearest").textContent=distances.length?`${Math.min(...distances).toFixed(0)} km`:"—";
-    $("sourceStatus").textContent=state.lastFetch
-      ?`NASA FIRMS · ${new Intl.DateTimeFormat("fr-FR",{hour:"2-digit",minute:"2-digit"}).format(state.lastFetch)}`
-      :"En attente";
-
-    $("windCity").textContent = currentLocation().name;
-
-if (state.wind) {
-  const direction = compassDirection(state.wind.direction);
-  
-  // === MODIFICATION ICI ===
-  const arrowAngle = (state.wind.direction + 180) % 360;   // +180° pour inverser la flèche
-  
-  $("windArrow").style.transform = `rotate(${arrowAngle}deg)`;
-  $("windArrow").textContent = "↑";
-  $("windSpeed").textContent = `${Math.round(state.wind.speed)} km/h`;
-  
-  $("windNeedle").style.transform = `rotate(${arrowAngle}deg)`;   // on inverse aussi l'aiguille du compas
-  
-  $("windDetailSpeed").textContent = `${Math.round(state.wind.speed)} km/h · ${direction}`;
-  $("windDetailDirection").textContent = state.wind.gusts !== null
-    ? `Rafales jusqu'à ${Math.round(state.wind.gusts)} km/h`
-    : "Rafales indisponibles";
-} else {
-  $("windSpeed").textContent = "—";
-  $("windDetailSpeed").textContent = "Données en attente";
-  $("windDetailDirection").textContent = "Direction et rafales";
-}
-
-    const feed=$("feed");
-    if(!state.fireGroups.length){
-      feed.innerHTML='<div class="empty">Aucune détection dans la fenêtre choisie.</div>';
-      return;
-    }
-
-    feed.innerHTML=state.fireGroups.slice(0,24).map((group,index)=>{
-      const age=(Date.now()-group.latest)/36e5;
-      const distance=`${group.nearest.toFixed(0)} km de ${escapeHtml(currentLocation().name)}`;
-      if(group.count===1){
-        const p=group.points[0];
-        return `<div class="feed-item" data-group="${index}" role="button" tabindex="0">
-          <span class="dot" style="background:${colorForAge(age)}"></span>
-          <div>
-            <div class="feed-main">Détection isolée · ${distance}</div>
-            <div class="feed-sub">${escapeHtml(p.sensor)}${p.frp!==null?` · FRP ${p.frp.toFixed(1)} MW`:""} · ${fmtDate(p.time)}</div>
-          </div>
-          <span class="badge">${relTime(p.time)}</span>
-        </div>`;
-      }
-
-      const extent=group.extent<1?"moins de 1 km":`environ ${Math.max(1,Math.round(group.extent))} km`;
-      const sources=`${group.sensors.length} source${group.sensors.length>1?"s":""} satellite${group.sensors.length>1?"s":""}`;
-      const frp=group.maxFrp!==null?` · FRP max ${group.maxFrp.toFixed(1)} MW`:"";
-      return `<div class="feed-item" data-group="${index}" role="button" tabindex="0">
-        <span class="dot" style="background:${colorForAge(age)}"></span>
-        <div>
-          <div class="feed-main"><strong>Foyer probable</strong> · ${distance} · ${group.count.toLocaleString("fr-FR")} détections</div>
-          <div class="feed-sub">Étendue observée : ${extent} · ${sources}${frp}</div>
-        </div>
-        <span class="badge">${relTime(group.latest)}</span>
-      </div>`;
-    }).join("");
-  }
-
-  map.on("zoomend",renderFireGroupOverlays);
-
-  $("feed").addEventListener("click",event=>{
-    const item=event.target.closest("[data-group]");
-    if(!item) return;
-    focusFireGroup(state.fireGroups[+item.dataset.group]);
-  });
-
-  $("feed").addEventListener("keydown",event=>{
-    if(event.key!=="Enter" && event.key!==" ") return;
-    const item=event.target.closest("[data-group]");
-    if(!item) return;
-    event.preventDefault();
-    focusFireGroup(state.fireGroups[+item.dataset.group]);
-  });
-
-  function fitPoints(){
-    const location=currentLocation();
-    if(!state.points.length){
-      map.flyTo([location.lat,location.lon],8,{duration:.45});
-      return;
-    }
-    const bounds=L.latLngBounds([[location.lat,location.lon],...state.points.map(p=>[p.lat,p.lon])]);
-    map.fitBounds(bounds,{padding:[36,36],maxZoom:11,animate:true,duration:.45});
-  }
-
-  async function searchCities(){
-    const query=$("cityQuery").value.trim();
-    const status=$("cityStatus");
-    const wrap=$("cityResultWrap");
-    const select=$("cityResults");
-
-    if(query.length<2){
-      status.textContent="Entrez au moins deux caractères.";
-      wrap.hidden=true;
-      return;
-    }
-
-    $("searchCity").disabled=true;
-    $("searchCity").textContent="Recherche…";
-    status.textContent="Recherche de la ville…";
-    wrap.hidden=true;
-    $("applyCity").hidden=true;
-
-    try{
-      const url=new URL("https://nominatim.openstreetmap.org/search");
-      url.searchParams.set("q",query);
-      url.searchParams.set("format","jsonv2");
-      url.searchParams.set("limit","5");
-      url.searchParams.set("addressdetails","1");
-      url.searchParams.set("accept-language","fr");
-
-      const res=await fetch(url.toString(),{
-        headers:{"Accept":"application/json"},
-        cache:"no-store"
-      });
-      if(!res.ok) throw new Error(`service de recherche indisponible (${res.status})`);
-
-      const results=await res.json();
-      if(!Array.isArray(results)||!results.length){
-        status.textContent="Aucune ville trouvée. Essayez avec le pays, par exemple « Nice, France ».";
-        $("applyCity").hidden=true;
-        return;
-      }
-
-      select.innerHTML=results.map((item,index)=>{
-        const label=item.display_name || query;
-        return `<option value="${index}">${escapeHtml(label)}</option>`;
-      }).join("");
-      select.dataset.results=JSON.stringify(results.map(item=>({
-        name:item.name || item.address?.city || item.address?.town || item.address?.village || item.display_name?.split(",")[0] || query,
-        label:item.display_name || query,
-        lat:+item.lat,
-        lon:+item.lon
-      })));
-      wrap.hidden=false;
-      $("applyCity").hidden=false;
-      status.textContent="Choisissez le bon résultat, puis appuyez sur « Utiliser cette ville ».";
-    }catch(err){
-      status.textContent=`Impossible de rechercher la ville : ${err.message}.`;
-      $("applyCity").hidden=true;
-    }finally{
-      $("searchCity").disabled=false;
-      $("searchCity").textContent="Rechercher";
-    }
-  }
-
-  async function applySelectedCity(){
-    let results=[];
-    try{results=JSON.parse($("cityResults").dataset.results||"[]")}catch{}
-    const selected=results[+$("cityResults").value];
-    if(!selected||!Number.isFinite(selected.lat)||!Number.isFinite(selected.lon)) return;
-
-    state.settings.location={name:selected.name,lat:selected.lat,lon:selected.lon};
-    saveSettings();
-    renderCityMarker();
-    map.flyTo([selected.lat,selected.lon],8,{duration:.55});
-    $("cityStatus").textContent=`${selected.label} sélectionnée. Mise à jour des incendies…`;
-    $("applyCity").hidden=true;
-    $("cityResultWrap").hidden=true;
-    state.points=[];
-    state.wind=null;
-    renderLayers();
-    updateUI();
-    await refresh();
-  }
-
-  function showError(message){
-    $("headerError").textContent=message;
-    $("headerError").classList.add("show");
-  }
-
-  function clearError(){
-    $("headerError").classList.remove("show");
-    $("headerError").textContent="";
-  }
-
-  function openDrawer(){
-    $("drawer").classList.add("open");
-    $("scrim").classList.add("show");
-  }
-
-  function closeDrawer(){
-    $("drawer").classList.remove("open");
-    $("scrim").classList.remove("show");
-  }
-
-  $("radius").value=String(state.settings.radius);
-  $("hours").value=String(state.settings.hours);
-  $("displayMode").value=state.settings.mode;
-  $("mapKey").value=state.mapKey;
-
-  $("settingsBtn").addEventListener("click",openDrawer);
-  $("closeDrawer").addEventListener("click",closeDrawer);
-  $("scrim").addEventListener("click",closeDrawer);
-
-  $("searchCity").addEventListener("click",searchCities);
-  $("cityQuery").addEventListener("keydown",e=>{if(e.key==="Enter")searchCities()});
-  $("cityResults").addEventListener("change",()=>{
-    $("cityStatus").textContent="Ville sélectionnée. Appuyez sur « Utiliser cette ville » pour actualiser la carte.";
-  });
-  $("applyCity").addEventListener("click",applySelectedCity);
-
-  $("saveKey").addEventListener("click",()=>{
-    const value=$("mapKey").value.trim();
-    if(!value){showError("Collez une clé NASA FIRMS valide.");return}
-    state.mapKey=value;
-    localStorage.setItem(STORAGE_KEY,value);
-    closeDrawer();
-    refresh();
-  });
-
-  $("mapKey").addEventListener("keydown",e=>{
-    if(e.key==="Enter") $("saveKey").click();
-  });
-
-  $("clearKey").addEventListener("click",()=>{
-    state.mapKey="";
-    state.points=[];
-    $("mapKey").value="";
-    localStorage.removeItem(STORAGE_KEY);
-    renderLayers();
-    updateUI();
-    showError("Clé effacée de cet appareil.");
-  });
-
-  $("radius").addEventListener("change",()=>{
-    state.settings.radius=+$("radius").value;
-    saveSettings();refresh();
-  });
-
-  $("hours").addEventListener("change",()=>{
-    state.settings.hours=+$("hours").value;
-    saveSettings();refresh();
-  });
-
-  $("displayMode").addEventListener("change",()=>{
-    state.settings.mode=$("displayMode").value;
-    saveSettings();renderLayers();
-  });
-
-  $("refreshTop").addEventListener("click",refresh);
-  $("refreshBtn").addEventListener("click",refresh);
-  $("fitDrawerBtn").addEventListener("click",()=>{fitPoints();closeDrawer()});
-  $("homeBtn").addEventListener("click",()=>{const location=currentLocation();map.flyTo([location.lat,location.lon],8,{duration:.45})});
-  $("zoomIn").addEventListener("click",()=>map.zoomIn());
-  $("zoomOut").addEventListener("click",()=>map.zoomOut());
-
-  document.addEventListener("visibilitychange",()=>{
-    if(document.visibilityState==="visible" && state.lastFetch && Date.now()-state.lastFetch.getTime()>10*60*1000){
-      refresh();
-    }
-  });
-
-  window.addEventListener("online",()=>refresh());
-  window.addEventListener("offline",()=>showError("Connexion Internet indisponible. La dernière carte reste visible."));
-
-  const observer=new ResizeObserver(()=>map.invalidateSize({pan:false}));
-  observer.observe(document.querySelector("main"));
-
-  renderCityMarker();
-  updateUI();
-  if(state.mapKey) refresh();
-  else{
-    showError("Ajoutez votre clé gratuite NASA FIRMS dans les réglages pour charger les données.");
-    if(window.innerWidth<1100) openDrawer();
-  }
-
-  setInterval(()=>{
-    if(!document.hidden && navigator.onLine) refresh();
-  },10*60*1000);
-})();
-</script>
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="./app.js?v=2"></script>
 </body>
 </html>
