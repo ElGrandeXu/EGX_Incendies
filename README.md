@@ -1,8 +1,22 @@
 # EGX Incendies
 
-EGX Incendies permet de consulter les détections thermiques repérées par satellite autour d’une ville. L’application ajoute les vents actuels et prévus ainsi qu’une trajectoire potentielle des fumées pour aider à comprendre la situation.
+EGX Incendies montre les détections thermiques par satellite autour de la ville de votre choix.
 
-**[Ouvrir EGX Incendies](https://elgrandexu.github.io/EGX_Incendies/)**
+## [Ouvrir EGX Incendies →](https://elgrandexu.github.io/EGX_Incendies/)
+
+## Utiliser l’application en quelques minutes
+
+1. Demandez gratuitement votre [clé NASA FIRMS sur la page officielle](https://firms.modaps.eosdis.nasa.gov/api/map_key/). Entrez votre adresse e-mail. La NASA vous envoie la clé par e-mail.
+2. Ouvrez [EGX Incendies](https://elgrandexu.github.io/EGX_Incendies/).
+3. Ouvrez l’onglet **Configuration**.
+4. Dans **Clé NASA FIRMS**, collez la clé, puis touchez **Enregistrer**.
+5. Rouvrez **Configuration** si l’application affiche **Carte**. Dans **Zone cible**, saisissez votre ville, touchez **Rechercher**, choisissez le bon résultat, puis touchez **Utiliser cette ville**.
+6. Choisissez le **Rayon de détection** et l’**Historique des données** : 24, 48 ou 72 heures.
+7. Touchez **Lancer la carte**. L’application lance la surveillance et ouvre **Carte**.
+
+La clé reste dans le navigateur de cet appareil. Elle sert à interroger NASA FIRMS et n’est pas envoyée à un serveur EGX.
+
+**Raccourci mobile :** sur iPhone ou iPad, ouvrez le site dans Safari, puis touchez **Partager** → **Sur l’écran d’accueil**. Sur Android, ouvrez-le dans Chrome, puis choisissez **Ajouter à l’écran d’accueil** dans le menu. Une connexion à Internet reste nécessaire.
 
 > [!IMPORTANT]
 > En cas de danger immédiat, appelez le **112** ou le **18**. Suivez toujours les consignes des autorités et des services de secours.
@@ -20,25 +34,6 @@ EGX Incendies permet de consulter les détections thermiques repérées par sate
 - un thème clair et un thème sombre.
 
 Les informations évoluent avec les données reçues. Quand l’application reste ouverte, elle les actualise toutes les 10 minutes.
-
-## Première utilisation
-
-Une **clé gratuite NASA FIRMS** est nécessaire. Il s’agit d’une clé d’accès aux données de détection de la NASA.
-
-1. Ouvrez [EGX Incendies](https://elgrandexu.github.io/EGX_Incendies/).
-2. Touchez l’onglet **Configuration**, en bas de l’écran.
-3. Descendez jusqu’au bloc **Clé NASA FIRMS**.
-4. Touchez le bouton avec un point d’interrogation.
-5. Sur la [page officielle NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/api/map_key/), indiquez votre adresse e-mail pour demander une clé gratuite.
-6. Ouvrez l’e-mail reçu, puis copiez la clé.
-7. Revenez dans EGX Incendies.
-8. Collez la clé dans le champ **Clé NASA FIRMS**, puis touchez **Enregistrer**.
-9. Dans **Configuration**, recherchez votre ville. Sélectionnez le bon résultat, puis touchez **Utiliser cette ville**.
-10. Revenez dans l’onglet **Carte**.
-
-L’application peut revenir automatiquement à la carte après l’enregistrement de la clé. Dans ce cas, ouvrez de nouveau **Configuration** pour choisir votre ville.
-
-La clé est gratuite. Elle reste enregistrée dans le navigateur de votre appareil, par exemple Safari, Chrome ou Edge. Elle sert uniquement à interroger NASA FIRMS et n’est pas envoyée à un serveur EGX. Si vous aviez déjà enregistré une clé, vous n’avez normalement rien à refaire.
 
 ## Repères dans l’application
 
@@ -95,24 +90,6 @@ Les zones colorées montrent une tendance visuelle. Elles ne représentent pas u
 - Dans le bloc **À propos**, touchez le bouton en forme de lune ou de soleil pour passer du thème clair au thème sombre.
 
 Sur ordinateur, les mêmes contenus restent accessibles dans le panneau placé à droite de la carte.
-
-## Ajouter l’application à l’écran d’accueil
-
-L’adresse publique reste la même. Les anciens raccourcis vers cette adresse continuent de fonctionner.
-
-### Sur iPhone ou iPad
-
-1. Ouvrez le site dans **Safari**.
-2. Touchez **Partager**.
-3. Choisissez **Sur l’écran d’accueil**.
-
-### Sur Android
-
-1. Ouvrez le site dans **Chrome**.
-2. Ouvrez le menu du navigateur.
-3. Choisissez **Ajouter à l’écran d’accueil** ou **Installer l’application**, selon le choix affiché.
-
-Ce raccourci ouvre le site. Une connexion à Internet reste nécessaire pour charger la carte et les données récentes.
 
 ## Données et confidentialité
 
