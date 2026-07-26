@@ -8,8 +8,13 @@
   const SOURCES = ["VIIRS_SNPP_NRT","VIIRS_NOAA20_NRT","VIIRS_NOAA21_NRT","MODIS_NRT"];
   const FORECAST_HOURS = [0,3,6,12];
   const MIN_DIRECTIONAL_WIND_KMH = 3;
+  const FIRMS_TIMEOUT_MS = 20000;
+  const WEATHER_TIMEOUT_MS = 12000;
+  const NOMINATIM_TIMEOUT_MS = 10000;
+  const NOMINATIM_MIN_INTERVAL_MS = 1000;
+  const CITY_SEARCH_CACHE_MAX = 20;
   const MAIN_SMOKE_MAX_GROUPS = 16;
-  const MAIN_SMOKE_CONCURRENCY = 4;
+  const MAIN_SMOKE_CONCURRENCY = 3;
   const SMOKE_FORECAST_CACHE_TTL_MS = 10*60*1000;
   const OVERPASS_ENDPOINT = "https://overpass.kumi.systems/api/interpreter";
   const OVERPASS_TIMEOUT_MS = 15000;
@@ -25,8 +30,12 @@
     {key:"3-6",maxHours:6,label:"Entre 3 et 6 heures"},
     {key:"6-12",maxHours:12,label:"Entre 6 et 12 heures"}
   ];
+  const VALID_RADII = new Set([50,100,150,200,250]);
+  const VALID_HOURS = new Set([24,48,72]);
+  const VALID_MODES = new Set(["points+hulls","points","hulls"]);
   const localityCache = new Map();
   const smokeForecastCache = new Map();
+  const citySearchCache = new Map();
 
   const $ = id => document.getElementById(id);
   const state = {
@@ -34,9 +43,12 @@
     points: [],
     fireGroups: [],
     wind: null,
+    windLoading: false,
     windError: false,
     windAttemptedAt: null,
     lastFetch: null,
+    dataStatus: "idle",
+    dataScope: null,
     loading: false,
     abortController: null,
     settings: {radius:100,hours:72,mode:"points+hulls",location:{...DEFAULT_LOCATION}}
@@ -54,6 +66,11 @@
         lon:+saved.location.lon
       };
     }
+    const radius=Number(saved.radius);
+    const hours=Number(saved.hours);
+    state.settings.radius=VALID_RADII.has(radius)?radius:100;
+    state.settings.hours=VALID_HOURS.has(hours)?hours:72;
+    state.settings.mode=VALID_MODES.has(saved.mode)?saved.mode:"points+hulls";
   }catch{}
 
   const currentLocation = () => state.settings.location;
@@ -68,6 +85,9 @@
   let toastTimer = null;
   let activeView = "map";
   let refreshRequestId = 0;
+  let citySearchController = null;
+  let citySearchRequestId = 0;
+  let nextNominatimRequestAt = 0;
   let mainSmokeController = null;
   let mainSmokeRequestId = 0;
   const mainSmokeForecasts = new Map();
@@ -186,13 +206,27 @@
 
   function smokeRisk(){
     const location=currentLocation();
-    if(!state.wind || !state.points.length){
+    if(!state.points.length){
       return {
         level:"Indisponible",
         color:"#b8aea4",
-        explanation:state.points.length
-          ?"Vent indisponible : le trajet potentiel des fumées ne peut pas être estimé."
-          :"Aucune détection récente à analyser dans la zone choisie."
+        explanation:state.lastFetch
+          ?"Aucune détection récente à analyser dans la zone choisie."
+          :state.dataStatus==="error"
+            ?"Les détections sont indisponibles pour le moment."
+            :state.loading
+              ?"Chargement des détections en cours."
+              :"Les détections n’ont pas encore été chargées."
+      };
+    }
+
+    if(!state.wind){
+      return {
+        level:"Indisponible",
+        color:"#b8aea4",
+        explanation:state.windLoading
+          ?"Mise à jour du vent en cours."
+          :"Vent indisponible : le trajet potentiel des fumées ne peut pas être estimé."
       };
     }
 
@@ -288,8 +322,12 @@
     const clean=text.trim();
     if(!clean || clean.startsWith("<")) return [];
     const lines=clean.split(/\r?\n/);
-    if(lines.length<2) return [];
     const headers=splitCSV(lines[0]).map(x=>x.trim().toLowerCase());
+    const required=["latitude","longitude","acq_date","acq_time"];
+    if(required.some(name=>!headers.includes(name))){
+      throw new Error(`${sensor}: format CSV invalide`);
+    }
+    if(lines.length<2) return [];
     const idx=n=>headers.indexOf(n);
     const out=[];
     for(let i=1;i<lines.length;i++){
@@ -327,7 +365,13 @@
     const days=Math.max(1,Math.ceil(request.hours/24));
     const area=bbox(request.radius,request.location);
     const url=`https://firms.modaps.eosdis.nasa.gov/api/area/csv/${encodeURIComponent(request.mapKey)}/${source}/${area}/${days}`;
-    const res=await fetch(url,{cache:"no-store",signal});
+    const res=await fetchWithTimeout(
+      url,
+      {cache:"no-store"},
+      signal,
+      FIRMS_TIMEOUT_MS,
+      `Délai FIRMS dépassé pour ${source}`
+    );
     if(!res.ok) throw new Error(`${source}: erreur ${res.status}`);
     const text=await res.text();
     if(text.trim().startsWith("<")) throw new Error(`${source}: réponse invalide`);
@@ -424,21 +468,40 @@
     };
   }
 
-  async function fetchWindForecast(lat,lon,signal){
+  function buildWindForecastUrl(locations){
     const url=new URL("https://api.open-meteo.com/v1/forecast");
-    url.searchParams.set("latitude",lat);
-    url.searchParams.set("longitude",lon);
+    url.searchParams.set("latitude",locations.map(location=>location.lat).join(","));
+    url.searchParams.set("longitude",locations.map(location=>location.lon).join(","));
     url.searchParams.set("current","wind_speed_10m,wind_direction_10m,wind_gusts_10m");
     url.searchParams.set("hourly","wind_speed_10m,wind_direction_10m,wind_gusts_10m");
     url.searchParams.set("forecast_hours","13");
     url.searchParams.set("wind_speed_unit","kmh");
     url.searchParams.set("timezone","auto");
     url.searchParams.set("timeformat","unixtime");
+    return url;
+  }
 
-    const res=await fetch(url.toString(),{cache:"no-store",signal});
+  async function fetchWindForecasts(locations,signal){
+    if(!locations.length) return [];
+    const url=buildWindForecastUrl(locations);
+    const res=await fetchWithTimeout(
+      url.toString(),
+      {cache:"no-store"},
+      signal,
+      WEATHER_TIMEOUT_MS,
+      "Délai météo dépassé"
+    );
     if(!res.ok) throw new Error(`météo ${res.status}`);
     const data=await res.json();
-    return parseWindForecast(data);
+    const forecasts=Array.isArray(data)?data:[data];
+    if(forecasts.length!==locations.length){
+      throw new Error("météo : réponse incomplète");
+    }
+    return forecasts.map(parseWindForecast);
+  }
+
+  async function fetchWindForecast(lat,lon,signal){
+    return (await fetchWindForecasts([{lat,lon}],signal))[0];
   }
 
   function fireGroupSignature(group){
@@ -488,6 +551,82 @@
     }
   }
 
+  async function fetchGroupSmokeForecasts(groups,signal){
+    pruneSmokeForecastCache();
+    const results=new Map();
+    const pending=[];
+    const missing=[];
+
+    for(const group of groups){
+      const key=fireGroupSignature(group);
+      const cached=smokeForecastCache.get(key);
+      if(cached?.status==="resolved" && cached.expiresAt>Date.now()){
+        results.set(key,cached.value);
+      }else if(cached?.status==="pending" && !cached.signal?.aborted){
+        pending.push({key,promise:cached.promise});
+      }else{
+        missing.push(group);
+      }
+    }
+
+    if(missing.length){
+      const batchPromise=fetchWindForecasts(
+        missing.map(group=>group.center),
+        signal
+      );
+      const batchEntries=missing.map((group,index)=>{
+        const key=fireGroupSignature(group);
+        const promise=batchPromise.then(forecasts=>forecasts[index]);
+        smokeForecastCache.set(key,{status:"pending",promise,signal});
+        return {group,key,promise};
+      });
+      const settled=await Promise.allSettled(batchEntries.map(entry=>entry.promise));
+      const batchFailed=settled.some(result=>result.status==="rejected");
+
+      if(!batchFailed){
+        settled.forEach((result,index)=>{
+          const entry=batchEntries[index];
+          const value=result.value;
+          if(smokeForecastCache.get(entry.key)?.promise===entry.promise){
+            smokeForecastCache.set(entry.key,{
+              status:"resolved",
+              value,
+              expiresAt:Date.now()+SMOKE_FORECAST_CACHE_TTL_MS
+            });
+          }
+          results.set(entry.key,value);
+        });
+      }else{
+        batchEntries.forEach(entry=>{
+          if(smokeForecastCache.get(entry.key)?.promise===entry.promise){
+            smokeForecastCache.delete(entry.key);
+          }
+        });
+        const failure=settled.find(result=>result.status==="rejected")?.reason;
+        if(failure?.name==="AbortError" || signal.aborted) throw failure;
+
+        // Une réponse groupée défaillante ne prive pas toute la carte de vent :
+        // les foyers sont retentés séparément avec une concurrence bornée.
+        await runWithConcurrency(missing,MAIN_SMOKE_CONCURRENCY,async group=>{
+          try{
+            const value=await fetchGroupSmokeForecast(group,signal);
+            results.set(fireGroupSignature(group),value);
+          }catch(err){
+            if(err.name==="AbortError") throw err;
+          }
+        });
+      }
+    }
+
+    const pendingSettled=await Promise.allSettled(pending.map(entry=>entry.promise));
+    pendingSettled.forEach((result,index)=>{
+      if(result.status==="fulfilled"){
+        results.set(pending[index].key,result.value);
+      }
+    });
+    return results;
+  }
+
   function cancelMainSmokeRequests(){
     mainSmokeController?.abort();
     mainSmokeController=null;
@@ -496,11 +635,41 @@
     mainSmokeLayer.clearLayers();
   }
 
+  function dataScopeFromRequest(request){
+    return {
+      hours:request.hours,
+      radius:request.radius,
+      location:{lat:request.location.lat,lon:request.location.lon}
+    };
+  }
+
+  function sameDataScope(a,b){
+    return Boolean(
+      a && b &&
+      a.hours===b.hours &&
+      a.radius===b.radius &&
+      a.location.lat===b.location.lat &&
+      a.location.lon===b.location.lon
+    );
+  }
+
+  function sourceStatusMessage(){
+    if(state.loading) return "Connexion aux satellites…";
+    if(state.dataStatus==="stale" && state.lastFetch){
+      return `Dernières données : ${fmtClock(state.lastFetch)}`;
+    }
+    if(state.dataStatus==="error") return "Données indisponibles";
+    if(state.lastFetch) return `Mis à jour à ${fmtClock(state.lastFetch)}`;
+    return "En attente";
+  }
+
   async function refresh(){
     clearError();
     cancelMainSmokeRequests();
 
     if(!state.mapKey){
+      state.dataStatus="idle";
+      state.windLoading=false;
       showError("Ajoutez votre clé gratuite NASA FIRMS dans les réglages pour charger les données.");
       $("keyStatus").textContent="Une clé MAP_KEY est requise pour charger les détections.";
       openDrawer();
@@ -520,30 +689,56 @@
     };
 
     state.loading=true;
+    state.dataStatus="loading";
     state.wind=null;
+    state.windLoading=true;
     state.windError=false;
     state.windAttemptedAt=Date.now();
     setLoading(true);
     updateUI();
 
-    try{
-      const [fireSettled,windSettled]=await Promise.all([
-        Promise.allSettled(SOURCES.map(src=>fetchSource(src,controller.signal,request))),
-        Promise.allSettled([fetchWindForecast(request.location.lat,request.location.lon,controller.signal)])
-      ]);
-      if(requestId!==refreshRequestId) return;
-
-      const windResult=windSettled[0];
-      if(windResult?.status==="fulfilled" && windResult.value.current){
-        state.windAttemptedAt=windResult.value.forecast.retrievedAt;
-        state.wind={
-          ...windResult.value.current,
-          retrievedAt:windResult.value.forecast.retrievedAt
-        };
-      }else{
-        state.wind=null;
-        state.windError=true;
+    let windFinished=false;
+    const windPromise=fetchWindForecast(
+      request.location.lat,
+      request.location.lon,
+      controller.signal
+    ).then(result=>{
+      if(requestId!==refreshRequestId || controller.signal.aborted) return;
+      if(!result.current) throw new Error("prévision actuelle absente");
+      state.windAttemptedAt=result.forecast.retrievedAt;
+      state.wind={
+        ...result.current,
+        retrievedAt:result.forecast.retrievedAt
+      };
+      state.windLoading=false;
+      state.windError=false;
+      updateUI();
+    }).catch(err=>{
+      if(requestId!==refreshRequestId || err.name==="AbortError") return;
+      state.wind=null;
+      state.windLoading=false;
+      state.windError=true;
+      updateUI();
+      if(state.dataStatus!=="error"){
+        addErrorNotice("Prévision du vent indisponible. Les détections restent accessibles.");
       }
+    }).finally(()=>{
+      windFinished=true;
+      if(
+        requestId===refreshRequestId &&
+        state.abortController===controller &&
+        !state.loading
+      ){
+        state.abortController=null;
+      }
+    });
+    void windPromise;
+
+    try{
+      const fireSettled=await Promise.allSettled(
+        SOURCES.map(src=>fetchSource(src,controller.signal,request))
+      );
+      if(requestId!==refreshRequestId) return;
 
       const availableSources=fireSettled.filter(x=>x.status==="fulfilled");
       if(!availableSources.length){
@@ -557,32 +752,49 @@
         .filter(p=>p.time>=cut && haversine(request.location,p)<=request.radius)
         .sort((a,b)=>b.time-a.time);
       state.lastFetch=new Date();
+      state.dataScope=dataScopeFromRequest(request);
+      state.dataStatus="ready";
 
       renderLayers();
       updateUI();
       void loadMainSmokeForecasts();
 
       const failed=fireSettled.filter(x=>x.status==="rejected").length;
-      const notices=[];
       if(failed){
-        notices.push(`${failed} source${failed>1?"s":""} satellite${failed>1?"s":""} indisponible${failed>1?"s":""}, mais les autres données ont été chargées`);
+        addErrorNotice(
+          `${failed} source${failed>1?"s":""} satellite${failed>1?"s":""} indisponible${failed>1?"s":""}, mais les autres données ont été chargées.`
+        );
       }
-      if(state.windError){
-        notices.push("prévision du vent indisponible, détections conservées");
-      }
-      if(notices.length) showError(`${notices.join(". ")}.`);
     }catch(err){
       if(requestId===refreshRequestId && err.name!=="AbortError"){
-        state.points=[];
-        state.lastFetch=null;
-        renderLayers();
+        controller.abort(new DOMException("Données FIRMS indisponibles","AbortError"));
+        const preserved=Boolean(
+          sameDataScope(state.dataScope,dataScopeFromRequest(request)) && state.lastFetch
+        );
+        state.wind=null;
+        state.windLoading=false;
+        state.windError=true;
+        if(preserved){
+          state.dataStatus="stale";
+        }else{
+          state.points=[];
+          state.lastFetch=null;
+          state.dataScope=null;
+          state.dataStatus="error";
+          renderLayers();
+        }
         updateUI();
-        showError(`Impossible de charger les données : ${err.message}. Vérifiez la clé et la connexion.`);
+        showError(preserved
+          ?`Actualisation impossible : ${err.message}. Les dernières détections restent affichées avec leur heure de mise à jour.`
+          :`Impossible de charger les données : ${err.message}. Vérifiez la clé et la connexion.`
+        );
       }
     }finally{
       if(requestId===refreshRequestId){
-        state.abortController=null;
         state.loading=false;
+        if(windFinished && state.abortController===controller){
+          state.abortController=null;
+        }
         setLoading(false);
         updateUI();
       }
@@ -600,7 +812,7 @@
       :'<span class="material-symbols-outlined" aria-hidden="true">satellite_alt</span> Lancer la carte';
     $("sourceStatus").classList.toggle("loading",on);
     $("mapStage").setAttribute("aria-busy",String(on));
-    setSourceStatus(on?"Connexion aux satellites…":(state.lastFetch?`Mis à jour à ${new Intl.DateTimeFormat("fr-FR",{hour:"2-digit",minute:"2-digit"}).format(state.lastFetch)}`:"En attente"));
+    setSourceStatus(sourceStatusMessage());
   }
 
   function hull(points){
@@ -863,7 +1075,7 @@
     const m=Math.max(0,Math.round((Date.now()-t)/60000));
     if(m<60) return `${m} min`;
     const h=Math.floor(m/60),mm=m%60;
-    return mm?`${h} h ${mm}`:`${h} h`;
+    return mm?`${h} h ${String(mm).padStart(2,"0")}`:`${h} h`;
   }
 
   function fmtDate(t){
@@ -887,9 +1099,19 @@
 
   function updateUI(){
     const probableGroups=state.fireGroups.filter(group=>group.count>1);
-    $("groupCount").textContent=probableGroups.length.toLocaleString("fr-FR");
-    $("overviewGroupCount").textContent=probableGroups.length.toLocaleString("fr-FR");
-    $("count").textContent=`${state.points.length.toLocaleString("fr-FR")} détection${state.points.length>1?"s":""} NASA`;
+    const hasResolvedData=Boolean(state.lastFetch);
+    const groupCount=hasResolvedData
+      ?probableGroups.length.toLocaleString("fr-FR")
+      :"—";
+    $("groupCount").textContent=groupCount;
+    $("overviewGroupCount").textContent=groupCount;
+    $("count").textContent=hasResolvedData
+      ?`${state.points.length.toLocaleString("fr-FR")} détection${state.points.length>1?"s":""} NASA`
+      :state.loading
+        ?"Chargement des détections…"
+        :state.dataStatus==="error"
+          ?"Détections indisponibles"
+          :"Données en attente";
     const smoke=smokeRisk();
     const smokeColor=statusColor(smoke.level);
     $("smokeRisk").textContent=smoke.level;
@@ -908,13 +1130,12 @@
     if(distances.length){
       const nearestIndex=distances.indexOf(Math.min(...distances));
       $("nearestDirection").textContent=compassDirection(bearing(currentLocation(),state.points[nearestIndex]));
+      $("nearestAge").textContent=`· ${relTime(state.points[nearestIndex].time)}`;
     }else{
       $("nearestDirection").textContent="";
+      $("nearestAge").textContent="";
     }
-    setSourceStatus(state.lastFetch
-      ?`Mis à jour à ${new Intl.DateTimeFormat("fr-FR",{hour:"2-digit",minute:"2-digit"}).format(state.lastFetch)}`
-      :"En attente"
-    );
+    setSourceStatus(sourceStatusMessage());
 
     $("windCity").textContent=currentLocation().name;
 
@@ -935,17 +1156,24 @@
       $("windArrow").style.transform="rotate(0deg)";
       $("windNeedle").style.transform="rotate(0deg)";
       $("windSpeed").textContent="—";
-      $("windDetailSpeed").textContent=state.loading?"Mise à jour du vent…":"Prévision du vent indisponible";
-      $("windDetailDirection").textContent=state.loading
+      $("windDetailSpeed").textContent=state.windLoading?"Mise à jour du vent…":"Prévision du vent indisponible";
+      $("windDetailDirection").textContent=state.windLoading
         ?"Les détections restent accessibles."
         :state.windAttemptedAt
-          ?`Dernier essai à ${fmtClock(state.windAttemptedAt)} · aucune ancienne donnée affichée.`
+          ?`Dernier essai à ${fmtClock(state.windAttemptedAt)} · aucune ancienne prévision affichée.`
           :"Aucune ancienne donnée n'est présentée comme actuelle.";
     }
 
     const feed=$("feed");
     if(!state.fireGroups.length){
-      feed.innerHTML='<div class="empty-state"><span class="material-symbols-outlined" aria-hidden="true">search_off</span>Aucune détection dans la fenêtre choisie.</div>';
+      const empty=state.lastFetch
+        ?{icon:"search_off",message:"Aucune détection dans la fenêtre choisie."}
+        :state.loading
+          ?{icon:"satellite_alt",message:"Chargement des détections en cours…"}
+          :state.dataStatus==="error"
+            ?{icon:"cloud_off",message:"Les détections sont indisponibles pour le moment."}
+            :{icon:"satellite_alt",message:"En attente des données…"};
+      feed.innerHTML=`<div class="empty-state"><span class="material-symbols-outlined" aria-hidden="true">${empty.icon}</span>${empty.message}</div>`;
       return;
     }
 
@@ -1333,13 +1561,13 @@
     return deduped;
   }
 
-  async function fetchWithTimeout(url,options,parentSignal,timeoutMs){
+  async function fetchWithTimeout(url,options,parentSignal,timeoutMs,timeoutMessage="Délai dépassé"){
     const controller=new AbortController();
     const abortFromParent=()=>controller.abort(parentSignal?.reason);
     if(parentSignal?.aborted) abortFromParent();
     else parentSignal?.addEventListener("abort",abortFromParent,{once:true});
     const timeout=setTimeout(()=>{
-      controller.abort(new DOMException("Délai Overpass dépassé","TimeoutError"));
+      controller.abort(new DOMException(timeoutMessage,"TimeoutError"));
     },timeoutMs);
     try{
       return await fetch(url,{...options,signal:controller.signal});
@@ -1401,7 +1629,8 @@
           cache:"no-store"
         },
         signal,
-        OVERPASS_TIMEOUT_MS
+        OVERPASS_TIMEOUT_MS,
+        "Délai Overpass dépassé"
       );
       if(!response.ok){
         throw new Error(response.status===429
@@ -1776,25 +2005,26 @@
     // Reprise exacte de la sélection des overlays : les 16 foyers significatifs
     // couvrent aussi le sous-ensemble de 10 affiché aux zooms éloignés.
     const groups=selectSignificantFireGroups(MAIN_SMOKE_MAX_GROUPS);
-    await runWithConcurrency(groups,MAIN_SMOKE_CONCURRENCY,async group=>{
-      if(controller.signal.aborted) return;
-      try{
-        const result=await fetchGroupSmokeForecast(group,controller.signal);
-        if(requestId!==mainSmokeRequestId || controller.signal.aborted) return;
-        const signature=fireGroupSignature(group);
-        const liveGroup=state.fireGroups.find(item=>fireGroupSignature(item)===signature);
-        if(!liveGroup) return;
-        const analysis=analyzeSmokeForecast(result.forecast);
-        const route=buildSmokeRoute(liveGroup.center,result.forecast.horizons);
-        mainSmokeForecasts.set(signature,{analysis,route});
-        renderMainSmokeLayers();
-      }catch(err){
-        if(err.name!=="AbortError" && requestId===mainSmokeRequestId){
-          mainSmokeForecasts.delete(fireGroupSignature(group));
-          renderMainSmokeLayers();
+    try{
+      const forecasts=await fetchGroupSmokeForecasts(groups,controller.signal);
+      if(requestId===mainSmokeRequestId && !controller.signal.aborted){
+        for(const group of groups){
+          const signature=fireGroupSignature(group);
+          const result=forecasts.get(signature);
+          if(!result) continue;
+          const liveGroup=state.fireGroups.find(item=>fireGroupSignature(item)===signature);
+          if(!liveGroup) continue;
+          const analysis=analyzeSmokeForecast(result.forecast);
+          const route=buildSmokeRoute(liveGroup.center,result.forecast.horizons);
+          mainSmokeForecasts.set(signature,{analysis,route});
         }
+        renderMainSmokeLayers();
       }
-    });
+    }catch(err){
+      if(err.name!=="AbortError" && requestId===mainSmokeRequestId){
+        renderMainSmokeLayers();
+      }
+    }
     if(requestId===mainSmokeRequestId){
       mainSmokeController=null;
     }
@@ -2078,10 +2308,7 @@
     }
   }
 
-  map.on("zoomend",()=>{
-    renderFireGroupOverlays();
-    renderMainSmokeLayers();
-  });
+  map.on("zoomend",renderFireGroupOverlays);
   map.on("moveend",renderMainSmokeLayers);
 
   $("feed").addEventListener("click",event=>{
@@ -2112,19 +2339,78 @@
     map.fitBounds(bounds,{padding:[36,36],maxZoom:11,animate:true,duration:.45});
   }
 
+  function waitForNominatimSlot(signal){
+    if(signal.aborted){
+      return Promise.reject(new DOMException("Recherche remplacée","AbortError"));
+    }
+    const wait=Math.max(0,nextNominatimRequestAt-Date.now());
+    if(!wait){
+      nextNominatimRequestAt=Date.now()+NOMINATIM_MIN_INTERVAL_MS;
+      return Promise.resolve();
+    }
+    return new Promise((resolve,reject)=>{
+      const onAbort=()=>{
+        clearTimeout(timer);
+        reject(new DOMException("Recherche remplacée","AbortError"));
+      };
+      const timer=setTimeout(()=>{
+        signal.removeEventListener("abort",onAbort);
+        nextNominatimRequestAt=Date.now()+NOMINATIM_MIN_INTERVAL_MS;
+        resolve();
+      },wait);
+      signal.addEventListener("abort",onAbort,{once:true});
+    });
+  }
+
+  function rememberCitySearch(key,results){
+    citySearchCache.delete(key);
+    citySearchCache.set(key,results);
+    while(citySearchCache.size>CITY_SEARCH_CACHE_MAX){
+      citySearchCache.delete(citySearchCache.keys().next().value);
+    }
+  }
+
+  function showCityResults(results){
+    const status=$("cityStatus");
+    const wrap=$("cityResultWrap");
+    const select=$("cityResults");
+    if(!results.length){
+      status.textContent="Aucune ville trouvée. Essayez avec le pays, par exemple « Nice, France ».";
+      $("applyCity").hidden=true;
+      return;
+    }
+
+    select.innerHTML=results.map((item,index)=>
+      `<option value="${index}">${escapeHtml(item.label)}</option>`
+    ).join("");
+    select.dataset.results=JSON.stringify(results);
+    wrap.hidden=false;
+    select.hidden=false;
+    $("applyCity").hidden=false;
+    status.textContent="Choisissez le bon résultat, puis appuyez sur « Utiliser cette ville ».";
+  }
+
   async function searchCities(){
     const query=$("cityQuery").value.trim();
     const status=$("cityStatus");
     const wrap=$("cityResultWrap");
     const select=$("cityResults");
+    const requestId=++citySearchRequestId;
+    citySearchController?.abort();
+    citySearchController=null;
 
     if(query.length<2){
+      $("searchCity").disabled=false;
+      $("searchCity").textContent="Rechercher";
       status.textContent="Entrez au moins deux caractères.";
       wrap.hidden=true;
       select.hidden=true;
+      $("applyCity").hidden=true;
       return;
     }
 
+    const controller=new AbortController();
+    citySearchController=controller;
     $("searchCity").disabled=true;
     $("searchCity").textContent="Recherche…";
     status.textContent="Recherche de la ville…";
@@ -2133,6 +2419,15 @@
     $("applyCity").hidden=true;
 
     try{
+      const cacheKey=query.toLocaleLowerCase("fr-FR").replace(/\s+/g," ");
+      const cached=citySearchCache.get(cacheKey);
+      if(cached){
+        rememberCitySearch(cacheKey,cached);
+        showCityResults(cached);
+        return;
+      }
+
+      await waitForNominatimSlot(controller.signal);
       const url=new URL("https://nominatim.openstreetmap.org/search");
       url.searchParams.set("q",query);
       url.searchParams.set("format","jsonv2");
@@ -2140,39 +2435,37 @@
       url.searchParams.set("addressdetails","1");
       url.searchParams.set("accept-language","fr");
 
-      const res=await fetch(url.toString(),{
-        headers:{"Accept":"application/json"},
-        cache:"no-store"
-      });
+      const res=await fetchWithTimeout(
+        url.toString(),
+        {headers:{"Accept":"application/json"}},
+        controller.signal,
+        NOMINATIM_TIMEOUT_MS,
+        "Délai de recherche dépassé"
+      );
       if(!res.ok) throw new Error(`service de recherche indisponible (${res.status})`);
 
-      const results=await res.json();
-      if(!Array.isArray(results)||!results.length){
-        status.textContent="Aucune ville trouvée. Essayez avec le pays, par exemple « Nice, France ».";
-        $("applyCity").hidden=true;
-        return;
-      }
-
-      select.innerHTML=results.map((item,index)=>{
-        const label=item.display_name || query;
-        return `<option value="${index}">${escapeHtml(label)}</option>`;
-      }).join("");
-      select.dataset.results=JSON.stringify(results.map(item=>({
+      const rawResults=await res.json();
+      if(requestId!==citySearchRequestId || controller.signal.aborted) return;
+      if(!Array.isArray(rawResults)) throw new Error("réponse de recherche invalide");
+      const results=rawResults.map(item=>({
         name:item.name || item.address?.city || item.address?.town || item.address?.village || item.display_name?.split(",")[0] || query,
         label:item.display_name || query,
         lat:+item.lat,
         lon:+item.lon
-      })));
-      wrap.hidden=false;
-      select.hidden=false;
-      $("applyCity").hidden=false;
-      status.textContent="Choisissez le bon résultat, puis appuyez sur « Utiliser cette ville ».";
+      })).filter(item=>Number.isFinite(item.lat)&&Number.isFinite(item.lon));
+      rememberCitySearch(cacheKey,results);
+      showCityResults(results);
     }catch(err){
-      status.textContent=`Impossible de rechercher la ville : ${err.message}.`;
-      $("applyCity").hidden=true;
+      if(err.name!=="AbortError" && requestId===citySearchRequestId){
+        status.textContent=`Impossible de rechercher la ville : ${err.message}.`;
+        $("applyCity").hidden=true;
+      }
     }finally{
-      $("searchCity").disabled=false;
-      $("searchCity").textContent="Rechercher";
+      if(requestId===citySearchRequestId){
+        citySearchController=null;
+        $("searchCity").disabled=false;
+        $("searchCity").textContent="Rechercher";
+      }
     }
   }
 
@@ -2192,6 +2485,12 @@
     $("cityResults").hidden=true;
     state.points=[];
     state.wind=null;
+    state.windLoading=true;
+    state.windError=false;
+    state.windAttemptedAt=null;
+    state.lastFetch=null;
+    state.dataScope=null;
+    state.dataStatus="loading";
     renderLayers();
     updateUI();
     await refresh();
@@ -2200,6 +2499,13 @@
   function showError(message){
     $("headerError").textContent=message;
     $("headerError").classList.add("show");
+  }
+
+  function addErrorNotice(message){
+    const banner=$("headerError");
+    const current=banner.classList.contains("show")?banner.textContent.trim():"";
+    if(current.includes(message)) return;
+    showError(current?`${current} ${message}`:message);
   }
 
   function clearError(){
@@ -2272,6 +2578,19 @@
   document.querySelectorAll(".panel-tab").forEach(button=>{
     button.addEventListener("click",()=>setView(button.dataset.panel));
   });
+  document.querySelector(".panel-tabs").addEventListener("keydown",event=>{
+    if(!["ArrowLeft","ArrowRight","Home","End"].includes(event.key)) return;
+    const tabs=[...document.querySelectorAll(".panel-tab")];
+    const current=Math.max(0,tabs.indexOf(document.activeElement));
+    const next=event.key==="Home"
+      ?0
+      :event.key==="End"
+        ?tabs.length-1
+        :(current+(event.key==="ArrowRight"?1:-1)+tabs.length)%tabs.length;
+    event.preventDefault();
+    tabs[next].focus();
+    setView(tabs[next].dataset.panel);
+  });
 
   $("searchCity").addEventListener("click",searchCities);
   $("cityQuery").addEventListener("keydown",e=>{if(e.key==="Enter")searchCities()});
@@ -2307,9 +2626,12 @@
     state.mapKey="";
     state.points=[];
     state.wind=null;
+    state.windLoading=false;
     state.windError=false;
     state.windAttemptedAt=null;
     state.lastFetch=null;
+    state.dataScope=null;
+    state.dataStatus="idle";
     $("mapKey").value="";
     localStorage.removeItem(STORAGE_KEY);
     $("keyStatus").textContent="Clé supprimée.";
