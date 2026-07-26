@@ -720,6 +720,10 @@ body[data-view="overview"] .map-stage { visibility: hidden; }
   line-height: 18px;
 }
 
+.city-source a {
+  color: inherit;
+}
+
 .small-button {
   min-height: 44px;
   padding: 7px 10px;
