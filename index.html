@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="./style.css?v=2">
+  <link rel="stylesheet" href="./style.css?v=5">
 </head>
 
 <body data-view="map">
@@ -360,6 +360,27 @@
             </div>
             <span class="risk-badge" id="detailRisk">—</span>
           </div>
+          <section class="smoke-forecast" aria-labelledby="detailSmokeTitle">
+            <p class="eyebrow" id="detailSmokeTitle">Direction possible des fumées · 12 h</p>
+            <strong id="detailSmokeSummary" role="status" aria-live="polite">Prévision du vent en attente…</strong>
+            <p class="smoke-forecast-meta" id="detailSmokeMeta">Analyse aux échéances 3 h, 6 h et 12 h.</p>
+            <p class="smoke-forecast-note">Estimation selon les vents prévus — ce tracé peut évoluer.</p>
+          </section>
+          <section class="localities-forecast" aria-labelledby="detailLocalitiesTitle">
+            <h4 id="detailLocalitiesTitle">Localités potentiellement dans l’axe</h4>
+            <strong class="watched-city-status" id="detailWatchedCityStatus">Évaluation de la ville surveillée en attente…</strong>
+            <div id="detailLocalitiesContent" role="status" aria-live="polite">
+              <p class="localities-message" id="detailLocalitiesMessage">Recherche des localités en attente…</p>
+              <div class="locality-groups" id="detailLocalityGroups"></div>
+            </div>
+            <p class="localities-limit" id="detailLocalitiesLimit" hidden></p>
+            <p class="localities-source">
+              Localités :
+              <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© contributeurs OpenStreetMap</a>,
+              via Overpass.
+            </p>
+            <p class="localities-note">Cette estimation indique une direction possible des fumées, pas une zone de danger ni une consigne d’évacuation.</p>
+          </section>
           <div class="detail-actions">
             <button class="primary-button" id="shareAlert">
               <span class="material-symbols-outlined" aria-hidden="true">share</span>
@@ -370,10 +391,6 @@
             </a>
           </div>
         </div>
-        <section>
-          <p class="eyebrow" id="detailDetectionCount">Détections dans le foyer</p>
-          <div class="detail-detections" id="detailDetections"></div>
-        </section>
       </div>
     </section>
 
@@ -381,6 +398,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="./app.js?v=2"></script>
+  <script src="./app.js?v=5"></script>
 </body>
 </html>

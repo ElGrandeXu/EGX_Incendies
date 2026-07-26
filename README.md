@@ -1,6 +1,6 @@
 # EGX Incendies
 
-EGX Incendies permet de consulter les détections thermiques repérées par satellite autour d’une ville. L’application ajoute le vent actuel et une estimation des fumées possibles pour aider à comprendre la situation.
+EGX Incendies permet de consulter les détections thermiques repérées par satellite autour d’une ville. L’application ajoute les vents actuels et prévus ainsi qu’une trajectoire potentielle des fumées pour aider à comprendre la situation.
 
 **[Ouvrir EGX Incendies](https://elgrandexu.github.io/EGX_Incendies/)**
 
@@ -14,8 +14,9 @@ EGX Incendies permet de consulter les détections thermiques repérées par sate
 - la distance de la détection la plus proche ;
 - le vent actuel ;
 - un niveau de risque pédagogique lié aux fumées ;
-- la direction possible des fumées selon le vent ;
+- les trajectoires potentielles des fumées à `3 h`, `6 h` et `12 h` sur la carte ;
 - le détail de chaque foyer probable ;
+- les localités potentiellement situées dans l’axe estimé, uniquement dans le détail ;
 - un thème clair et un thème sombre.
 
 Les informations évoluent avec les données reçues. Quand l’application reste ouverte, elle les actualise toutes les 10 minutes.
@@ -72,7 +73,9 @@ Les captures montrent la version mobile actuelle. La clé NASA n’apparaît dan
 
 - Consultez les détections et les foyers probables.
 - Lisez la distance la plus proche, le vent et le risque lié aux fumées.
-- Touchez un foyer sur la carte pour ouvrir ses détails.
+- Suivez les corridors neutres, les repères `3 h`, `6 h`, `12 h` et les flèches pour lire la direction potentielle des fumées.
+- Touchez un foyer, son corridor, une flèche ou un repère horaire pour ouvrir ses détails.
+- Dans le détail, consultez la tendance des vents et les localités potentiellement dans l’axe.
 - Touchez **Foyers probables** pour consulter la liste.
 
 ### Configuration
@@ -115,7 +118,7 @@ Ce raccourci ouvre le site. Une connexion à Internet reste nécessaire pour cha
 
 - **NASA FIRMS** fournit les détections thermiques.
 - **Open-Meteo** fournit les informations sur le vent.
-- **OpenStreetMap** fournit la carte.
+- **OpenStreetMap** fournit la carte et les noms des localités, via Overpass.
 - **Nominatim**, un service d’OpenStreetMap, recherche les villes.
 
 EGX Incendies ne demande aucun compte. EGX n’ajoute aucun outil de suivi publicitaire ou de mesure d’audience. Aucun renseignement personnel n’est envoyé à un serveur EGX.
@@ -128,7 +131,8 @@ La clé NASA, la ville et les préférences restent dans le navigateur de l’ap
 - Les satellites ne survolent pas une zone en continu.
 - Les nuages, la fumée ou un retard de transmission peuvent masquer ou retarder certaines détections.
 - Les foyers probables sont des regroupements automatiques. Ils ne confirment pas un incendie distinct.
-- La direction des fumées est une estimation pédagogique fondée sur le vent actuel.
+- Les trajectoires de fumées sont des estimations pédagogiques fondées sur les vents prévus à 10 m. Elles ne constituent pas un modèle de dispersion, une mesure de fumée ou une prévision des flammes.
+- Une localité affichée est seulement située dans l’axe géométrique estimé. Elle ne définit ni une zone de danger ni une consigne d’évacuation.
 - L’application ne mesure pas la qualité de l’air.
 - L’absence de détection ne signifie pas l’absence de danger.
 - L’application ne remplace ni les autorités, ni les alertes officielles, ni les services d’urgence.
@@ -153,6 +157,8 @@ Le projet utilise trois fichiers à la racine du dépôt :
 L’application fonctionne sans serveur EGX et sans étape de compilation. GitHub Pages publie le site. Elle interroge NASA FIRMS, Open-Meteo, OpenStreetMap et Nominatim.
 
 Pour l’ouvrir en local, servez la racine du dépôt avec un serveur HTTP. Par exemple, lancez `python -m http.server 8000`, puis ouvrez `http://localhost:8000/`.
+
+Le banc navigateur contrôlé est conservé dans `validation/mission2-browser.cjs`. Il nécessite Node.js et Google Chrome sous Windows.
 
 ## Licence
 

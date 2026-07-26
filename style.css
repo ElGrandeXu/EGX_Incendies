@@ -15,6 +15,8 @@
   --orange: #f97316;
   --yellow: #eab308;
   --blue: #3b82f6;
+  --locality: #3f6871;
+  --locality-soft: #e3eef0;
   --shadow: 0 8px 24px rgba(25, 28, 30, .12);
   --topbar-height: 60px;
   --bottom-nav-height: 72px;
@@ -49,6 +51,8 @@ html[data-theme="dark"] {
   --orange: #ff9a4d;
   --yellow: #f6cf45;
   --blue: #7db4ff;
+  --locality: #9bcbd2;
+  --locality-soft: #263b40;
   --shadow: 0 10px 28px rgba(0, 0, 0, .3);
 }
 
@@ -270,6 +274,25 @@ html[data-theme="dark"] #detailMap .leaflet-tile-pane {
 
 .leaflet-tooltip.city-label::before,
 .leaflet-tooltip.fire-group-label::before { display: none; }
+
+.main-smoke-corridor,
+.main-smoke-direction-line,
+.main-smoke-horizon-label,
+.main-smoke-direction-arrow {
+  cursor: pointer;
+}
+
+.main-smoke-horizon-label,
+.main-smoke-direction-arrow {
+  pointer-events: auto;
+}
+
+html[data-theme="dark"] .main-smoke-horizon-label,
+html[data-theme="dark"] .main-smoke-direction-arrow {
+  border-color: rgba(230,241,245,.42);
+  background: #41545c;
+  color: #f7fbfc;
+}
 
 .leaflet-tooltip.city-label {
   width: max-content;
@@ -658,9 +681,7 @@ body[data-view="overview"] .map-stage { visibility: hidden; }
 
 .metric-card strong,
 .nearest-reading strong,
-.badge,
-.detection-time,
-.detection-card-data strong {
+.badge {
   font-variant-numeric: tabular-nums;
 }
 
@@ -1232,7 +1253,7 @@ select { padding: 9px 36px 9px 12px; }
 }
 
 .detail-hero {
-  margin-bottom: 26px;
+  margin-bottom: 0;
   overflow: hidden;
   border: 1px solid var(--outline);
   border-radius: var(--radius-lg);
@@ -1271,6 +1292,222 @@ select { padding: 9px 36px 9px 12px; }
   overflow-wrap: anywhere;
 }
 
+.smoke-forecast {
+  margin: 0 16px 16px;
+  padding: 14px;
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-md);
+  background: var(--surface-low);
+}
+
+.smoke-forecast > strong {
+  display: block;
+  font-size: 15px;
+  line-height: 21px;
+  overflow-wrap: anywhere;
+}
+
+.smoke-forecast-meta,
+.smoke-forecast-note {
+  margin: 6px 0 0;
+  color: var(--text-soft);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.smoke-forecast-note {
+  padding-top: 8px;
+  border-top: 1px solid var(--outline);
+  font-weight: 600;
+}
+
+.localities-forecast {
+  margin: 0 16px 16px;
+  padding: 14px;
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.localities-forecast h4 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+
+.watched-city-status {
+  display: block;
+  margin-top: 8px;
+  padding: 9px 10px;
+  border-left: 3px solid var(--locality);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--locality-soft);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 19px;
+  overflow-wrap: anywhere;
+}
+
+.localities-message,
+.localities-limit,
+.localities-source,
+.localities-note {
+  margin: 9px 0 0;
+  color: var(--text-soft);
+  font-size: 11px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.localities-message {
+  margin-bottom: 0;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.locality-groups {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.locality-horizon {
+  padding-top: 9px;
+  border-top: 1px solid var(--outline);
+}
+
+.locality-horizon h5 {
+  margin: 0 0 5px;
+  color: var(--text-soft);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  line-height: 16px;
+}
+
+.locality-horizon ul {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.locality-horizon li {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  padding: 3px 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.locality-horizon li::before {
+  width: 7px;
+  height: 7px;
+  margin-top: 5px;
+  border: 1px solid color-mix(in srgb, var(--locality) 70%, var(--surface));
+  border-radius: 50%;
+  background: var(--locality);
+  content: "";
+}
+
+.locality-horizon li.watched {
+  font-weight: 700;
+}
+
+.localities-limit {
+  padding: 7px 9px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-low);
+}
+
+.localities-source a {
+  color: inherit;
+  font-weight: 600;
+}
+
+.localities-note {
+  padding-top: 8px;
+  border-top: 1px solid var(--outline);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.locality-map-marker {
+  width: 10px !important;
+  height: 10px !important;
+  margin: -5px 0 0 -5px !important;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #426e78;
+  box-shadow: 0 1px 4px rgba(0,0,0,.3);
+}
+
+html[data-theme="dark"] .locality-map-marker {
+  border-color: #172124;
+  background: #9bcbd2;
+}
+
+.leaflet-tooltip.locality-map-label {
+  width: max-content;
+  max-width: min(150px, calc(100vw - 44px));
+  padding: 3px 6px;
+  border: 1px solid rgba(255,255,255,.65);
+  border-radius: 4px;
+  background: #f6fbfc;
+  box-shadow: 0 2px 7px rgba(0,0,0,.16);
+  color: #20383e;
+  font: 600 9px/13px Inter, sans-serif;
+  overflow-wrap: anywhere;
+  text-align: center;
+  white-space: normal;
+}
+
+.leaflet-tooltip.locality-map-label::before {
+  display: none;
+}
+
+html[data-theme="dark"] .leaflet-tooltip.locality-map-label {
+  border-color: #54686d;
+  background: #203238;
+  color: #edf7f8;
+}
+
+.smoke-horizon-label {
+  display: grid;
+  place-items: center;
+  width: 30px !important;
+  height: 22px !important;
+  margin: -11px 0 0 -15px !important;
+  border: 1px solid rgba(255,255,255,.7);
+  border-radius: 999px;
+  background: #52666f;
+  box-shadow: 0 2px 6px rgba(0,0,0,.18);
+  color: #fff;
+  font: 700 10px/1 Inter, sans-serif;
+}
+
+.smoke-direction-arrow {
+  display: grid;
+  place-items: center;
+  width: 26px !important;
+  height: 26px !important;
+  margin: -13px 0 0 -13px !important;
+  border: 1px solid rgba(255,255,255,.65);
+  border-radius: 50%;
+  background: #52666f;
+  box-shadow: 0 2px 6px rgba(0,0,0,.18);
+  color: #fff;
+  font: 700 17px/1 Arial, sans-serif;
+}
+
 .detail-actions {
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--control-height);
@@ -1282,68 +1519,6 @@ select { padding: 9px 36px 9px 12px; }
   width: var(--control-height);
   padding: 0;
 }
-
-.detail-detections { display: grid; gap: 10px; }
-
-.detection-card {
-  display: grid;
-  gap: 14px;
-  padding: 14px;
-  border: 1px solid var(--outline);
-  border-left: 4px solid var(--danger);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-}
-
-.detection-card-head,
-.detection-card-data {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.detection-card-head > div {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.confidence {
-  padding: 4px 6px;
-  border-radius: 3px;
-  background: var(--danger-soft);
-  color: var(--danger);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.sensor {
-  overflow: hidden;
-  font-size: 11px;
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.detection-time { color: var(--text-soft); font-size: 11px; white-space: nowrap; }
-
-.detection-card-data > div {
-  display: grid;
-  gap: 3px;
-  flex: 1;
-}
-
-.detection-card-data span {
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: .05em;
-  text-transform: uppercase;
-}
-
-.detection-card-data strong { font-size: 13px; }
 
 .toast {
   position: fixed;
@@ -1646,7 +1821,7 @@ select:focus {
 
   .detail-content {
     width: 100%;
-    max-width: 760px;
+    max-width: 680px;
     margin-inline: auto;
     padding: 24px;
   }
@@ -1766,7 +1941,9 @@ select:focus {
   .toast { right: calc(var(--side-panel-width) + 24px); bottom: 20px; left: auto; width: 360px; }
 
   .detail-view {
-    inset: 4vh max(24px, calc((100vw - 1180px) / 2));
+    inset: 4vh 0;
+    width: min(640px, calc(100vw - 48px));
+    margin-inline: auto;
     border: 1px solid var(--outline);
     border-radius: var(--radius-lg);
     box-shadow: 0 22px 70px rgba(0,0,0,.28);
@@ -1774,13 +1951,9 @@ select:focus {
   }
 
   .detail-content {
-    display: grid;
-    grid-template-columns: minmax(330px, .9fr) minmax(360px, 1.1fr);
-    gap: 24px;
     padding: 24px;
   }
 
-  .detail-hero { align-self: start; margin: 0; }
   #detailMap { height: 300px; }
 }
 
