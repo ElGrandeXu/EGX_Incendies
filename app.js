@@ -26,9 +26,9 @@
   const LOCALITY_TYPES = new Set(["city","town","village","hamlet"]);
   const LOCALITY_CACHE_VERSION = 1;
   const LOCALITY_HORIZONS = [
-    {key:"0-3",maxHours:3,label:"Dans les 3 prochaines heures"},
-    {key:"3-6",maxHours:6,label:"Entre 3 et 6 heures"},
-    {key:"6-12",maxHours:12,label:"Entre 6 et 12 heures"}
+    {key:"0-3",maxHours:3,label:"Début du tracé"},
+    {key:"3-6",maxHours:6,label:"Suite du tracé"},
+    {key:"6-12",maxHours:12,label:"Fin du tracé"}
   ];
   const VALID_RADII = new Set([50,100,150,200,250]);
   const VALID_HOURS = new Set([24,48,72]);
@@ -805,8 +805,13 @@
     const buttons=[$("refreshTop"),$("refreshBtn")];
     buttons.forEach(btn=>btn.disabled=on);
     $("refreshTop").innerHTML=on
-      ?'<span class="loading-spin"></span>'
-      :'<span class="material-symbols-outlined" aria-hidden="true">refresh</span>';
+      ?'<span class="loading-spin"></span><span class="refresh-button-label">Mise à jour…</span>'
+      :'<span class="material-symbols-outlined" aria-hidden="true">refresh</span><span class="refresh-button-label">Actualiser</span>';
+    $("refreshTop").setAttribute(
+      "aria-label",
+      on?"Actualisation de la carte en cours":"Actualiser la carte"
+    );
+    $("refreshTop").title=on?"Actualisation en cours":"Actualiser la carte";
     $("refreshBtn").innerHTML=on
       ?'<span class="loading-spin"></span> Chargement…'
       :'<span class="material-symbols-outlined" aria-hidden="true">satellite_alt</span> Lancer la carte';
@@ -1701,9 +1706,9 @@
       };
     }
     const messages={
-      "0-3":`${location.name} pourrait se trouver dans l’axe des fumées dans les 3 prochaines heures.`,
-      "3-6":`${location.name} pourrait se trouver dans l’axe des fumées entre 3 et 6 heures.`,
-      "6-12":`${location.name} pourrait se trouver dans l’axe des fumées entre 6 et 12 heures.`
+      "0-3":`${location.name} pourrait se trouver au début du tracé estimé des fumées.`,
+      "3-6":`${location.name} pourrait se trouver dans la suite du tracé estimé des fumées.`,
+      "6-12":`${location.name} pourrait se trouver vers la fin du tracé estimé des fumées.`
     };
     return {
       locality:{
@@ -1761,8 +1766,8 @@
     const availableUntil=valid.length?Math.max(...valid.map(item=>item.hours)):0;
     const received=`Prévision reçue à ${fmtClock(forecast.retrievedAt)}`;
     const coverage=availableUntil
-      ?`tracé jusqu'à ${availableUntil} h`
-      :"échéance indisponible";
+      ?"tracé fondé sur les vents prévus disponibles"
+      :"direction actuelle uniquement";
     const partial=valid.length<FORECAST_HOURS.length;
 
     if(!valid.length){
@@ -1833,7 +1838,7 @@
 
     return {
       kind:"turning",
-      summary:`Les fumées pourraient d'abord aller vers ${directionWithArticle(first.travel)}, puis tourner vers ${directionWithArticle(last.travel)} d'ici ${last.hours} h.`,
+      summary:`Les fumées pourraient d'abord aller vers ${directionWithArticle(first.travel)}, puis s'infléchir vers ${directionWithArticle(last.travel)}.`,
       meta
     };
   }
@@ -1859,7 +1864,7 @@
     mainSmokeLayer.clearLayers();
     if(!mainSmokeForecasts.size) return;
 
-    const occupiedLabels=[];
+    const occupiedArrows=[];
     const visible=selectSignificantFireGroups();
     for(const group of visible){
       const entry=mainSmokeForecasts.get(fireGroupSignature(group));
@@ -1909,25 +1914,30 @@
             }
           ),
           group,
-          `Trajectoire potentielle des fumées · ${segment.endHours} h`
+          "Direction possible des fumées · ouvrir le détail"
         ).addTo(mainSmokeLayer);
 
-        const point=map.latLngToContainerPoint([segment.end.lat,segment.end.lon]);
-        const overlaps=occupiedLabels.some(existing=>
+        const arrowPoint=destinationPoint(
+          segment.start,
+          segment.direction,
+          haversine(segment.start,segment.end)/2
+        );
+        const point=map.latLngToContainerPoint([arrowPoint.lat,arrowPoint.lon]);
+        const overlaps=occupiedArrows.some(existing=>
           Math.abs(existing.x-point.x)<34 && Math.abs(existing.y-point.y)<26
         );
         if(!overlaps){
-          occupiedLabels.push(point);
-          L.marker([segment.end.lat,segment.end.lon],{
+          occupiedArrows.push(point);
+          L.marker([arrowPoint.lat,arrowPoint.lon],{
             pane:"smokeMarkerPane",
             interactive:true,
             keyboard:true,
-            title:`Repère ${segment.endHours} h · ouvrir le détail`,
+            title:"Direction possible des fumées · ouvrir le détail",
             icon:L.divIcon({
-              className:"smoke-horizon-label main-smoke-horizon-label",
-              html:`${segment.endHours} h`,
-              iconSize:[30,22],
-              iconAnchor:[15,11]
+              className:"smoke-direction-arrow main-smoke-direction-arrow",
+              html:`<span style="display:block;transform:rotate(${segment.direction}deg)">↑</span>`,
+              iconSize:[26,26],
+              iconAnchor:[13,13]
             })
           })
           .on("click",event=>{
@@ -1953,30 +1963,6 @@
         group,
         "Sens potentiel des fumées · ouvrir le détail"
       ).addTo(mainSmokeLayer);
-
-      const last=displayRoute.segments.at(-1);
-      const arrowPoint=destinationPoint(
-        last.start,
-        last.direction,
-        haversine(last.start,last.end)/2
-      );
-      L.marker([arrowPoint.lat,arrowPoint.lon],{
-        pane:"smokeMarkerPane",
-        interactive:true,
-        keyboard:true,
-        title:"Sens potentiel des fumées · ouvrir le détail",
-        icon:L.divIcon({
-          className:"smoke-direction-arrow main-smoke-direction-arrow",
-          html:`<span style="display:block;transform:rotate(${last.direction}deg)">↑</span>`,
-          iconSize:[26,26],
-          iconAnchor:[13,13]
-        })
-      })
-      .on("click",event=>{
-        L.DomEvent.stopPropagation(event);
-        openMapGroupDetail(group);
-      })
-      .addTo(mainSmokeLayer);
     }
   }
 
@@ -2034,7 +2020,7 @@
     detailWindLayer?.clearLayers();
     detailLocalityLayer?.clearLayers();
     $("detailSmokeSummary").textContent="Prévision du vent en attente…";
-    $("detailSmokeMeta").textContent="Analyse aux échéances 3 h, 6 h et 12 h.";
+    $("detailSmokeMeta").textContent="Analyse des vents prévus disponibles.";
     $("detailWatchedCityStatus").textContent="Évaluation de la ville surveillée en attente…";
     $("detailLocalitiesMessage").textContent="Recherche des localités en attente…";
     $("detailLocalityGroups").replaceChildren();
@@ -2079,14 +2065,19 @@
           interactive:false
         }
       ).addTo(detailWindLayer);
-      L.marker([segment.end.lat,segment.end.lon],{
+      const arrowPoint=destinationPoint(
+        segment.start,
+        segment.direction,
+        haversine(segment.start,segment.end)/2
+      );
+      L.marker([arrowPoint.lat,arrowPoint.lon],{
         interactive:false,
         keyboard:false,
         icon:L.divIcon({
-          className:"smoke-horizon-label",
-          html:`${segment.endHours} h`,
-          iconSize:[30,22],
-          iconAnchor:[15,11]
+          className:"smoke-direction-arrow",
+          html:`<span style="display:block;transform:rotate(${segment.direction}deg)">↑</span>`,
+          iconSize:[26,26],
+          iconAnchor:[13,13]
         })
       }).addTo(detailWindLayer);
     }
@@ -2098,23 +2089,6 @@
       dashArray:"4 8",
       lineCap:"round",
       interactive:false
-    }).addTo(detailWindLayer);
-
-    const last=displayRoute.segments.at(-1);
-    const arrowPoint=destinationPoint(
-      last.start,
-      last.direction,
-      haversine(last.start,last.end)/2
-    );
-    L.marker([arrowPoint.lat,arrowPoint.lon],{
-      interactive:false,
-      keyboard:false,
-      icon:L.divIcon({
-        className:"smoke-direction-arrow",
-        html:`<span style="display:block;transform:rotate(${last.direction}deg)">↑</span>`,
-        iconSize:[26,26],
-        iconAnchor:[13,13]
-      })
     }).addTo(detailWindLayer);
 
     if(displayRoute.compressed){
@@ -2493,6 +2467,7 @@
     state.dataStatus="loading";
     renderLayers();
     updateUI();
+    setView("map");
     await refresh();
   }
 
