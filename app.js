@@ -10,6 +10,7 @@
   const MIN_DIRECTIONAL_WIND_KMH = 3;
   const FIRMS_TIMEOUT_MS = 20000;
   const WEATHER_TIMEOUT_MS = 12000;
+  const AIR_QUALITY_TIMEOUT_MS = 12000;
   const NOMINATIM_TIMEOUT_MS = 10000;
   const NOMINATIM_MIN_INTERVAL_MS = 1000;
   const CITY_SEARCH_CACHE_MAX = 20;
@@ -46,6 +47,10 @@
     windLoading: false,
     windError: false,
     windAttemptedAt: null,
+    airQuality: null,
+    airQualityLoading: false,
+    airQualityError: false,
+    airQualityAttemptedAt: null,
     lastFetch: null,
     dataStatus: "idle",
     dataScope: null,
@@ -190,10 +195,35 @@
   function statusColor(level){
     const dark=document.documentElement.dataset.theme==="dark";
     const normalized=String(level||"").toLowerCase();
+    if(normalized==="aucun signal") return dark?"#7bc5d2":"#2a6f7a";
     if(normalized==="faible") return dark?"#74d99f":"#16784a";
     if(normalized==="modéré") return dark?"#f3c969":"#946000";
     if(normalized==="élevé" || normalized==="très élevé") return dark?"#ff817a":"#b42318";
     return dark?"#b7bbc0":"#62676b";
+  }
+
+  function airQualityColor(category){
+    const dark=document.documentElement.dataset.theme==="dark";
+    const colors={
+      "Bonne":dark?"#74d99f":"#16784a",
+      "Correcte":dark?"#8fc0ff":"#2663a8",
+      "Modérée":dark?"#f3c969":"#946000",
+      "Mauvaise":dark?"#ffae72":"#a84300",
+      "Très mauvaise":dark?"#ff817a":"#b42318",
+      "Extrêmement mauvaise":dark?"#f5a2ca":"#8f1d58"
+    };
+    return colors[category]||(dark?"#b7bbc0":"#62676b");
+  }
+
+  function airQualityLevel(category){
+    return [
+      "Bonne",
+      "Correcte",
+      "Modérée",
+      "Mauvaise",
+      "Très mauvaise",
+      "Extrêmement mauvaise"
+    ].indexOf(category)+1;
   }
 
   function rad(d){return d*Math.PI/180}
@@ -217,11 +247,18 @@
   function smokeRisk(){
     const location=currentLocation();
     if(!state.points.length){
+      if(state.dataStatus==="ready" && state.lastFetch){
+        return {
+          level:"Aucun signal",
+          color:"#2a6f7a",
+          explanation:"Aucune détection thermique récente à analyser dans la zone choisie. Cela ne garantit pas l’absence d’incendie ou de fumée."
+        };
+      }
       return {
         level:"Indisponible",
         color:"#b8aea4",
-        explanation:state.lastFetch
-          ?"Aucune détection récente à analyser dans la zone choisie."
+        explanation:state.dataStatus==="stale"
+          ?"La dernière actualisation a échoué : aucun risque actuel ne peut être estimé."
           :state.dataStatus==="error"
             ?"Les détections sont indisponibles pour le moment."
             :state.loading
@@ -409,6 +446,66 @@
     if(value===null || value===undefined || value==="") return null;
     const number=Number(value);
     return Number.isFinite(number)?number:null;
+  }
+
+  function airQualityCategory(value){
+    if(value<=20) return "Bonne";
+    if(value<=40) return "Correcte";
+    if(value<=60) return "Modérée";
+    if(value<=80) return "Mauvaise";
+    if(value<=100) return "Très mauvaise";
+    return "Extrêmement mauvaise";
+  }
+
+  function parseAirQuality(data){
+    const current=data?.current;
+    const value=finiteNumber(current?.european_aqi);
+    if(!current || value===null || value<0) throw new Error("indice EAQI absent ou invalide");
+    const components=[
+      ["PM2,5","european_aqi_pm2_5"],
+      ["PM10","european_aqi_pm10"],
+      ["NO₂","european_aqi_nitrogen_dioxide"],
+      ["O₃","european_aqi_ozone"],
+      ["SO₂","european_aqi_sulphur_dioxide"]
+    ].map(([label,key])=>({label,value:finiteNumber(current[key])}))
+      .filter(component=>component.value!==null && component.value>=0);
+    if(!components.length) throw new Error("indices de polluants absents");
+    const worst=Math.max(...components.map(component=>component.value));
+    const determining=worst===0
+      ?[]
+      :components.filter(component=>component.value===worst).map(component=>component.label);
+    return {
+      value,
+      category:airQualityCategory(value),
+      determining,
+      retrievedAt:Date.now()
+    };
+  }
+
+  function buildAirQualityUrl(location){
+    const url=new URL("https://air-quality-api.open-meteo.com/v1/air-quality");
+    url.searchParams.set("latitude",location.lat);
+    url.searchParams.set("longitude",location.lon);
+    url.searchParams.set(
+      "current",
+      "european_aqi,european_aqi_pm2_5,european_aqi_pm10,european_aqi_nitrogen_dioxide,european_aqi_ozone,european_aqi_sulphur_dioxide"
+    );
+    url.searchParams.set("domains","auto");
+    url.searchParams.set("timezone","auto");
+    url.searchParams.set("timeformat","unixtime");
+    return url;
+  }
+
+  async function fetchAirQuality(location,signal){
+    const res=await fetchWithTimeout(
+      buildAirQualityUrl(location).toString(),
+      {cache:"no-store"},
+      signal,
+      AIR_QUALITY_TIMEOUT_MS,
+      "Délai qualité de l’air dépassé"
+    );
+    if(!res.ok) throw new Error(`qualité de l’air ${res.status}`);
+    return parseAirQuality(await res.json());
   }
 
   function parseWindForecast(data){
@@ -680,6 +777,7 @@
     if(!mapKey){
       state.dataStatus="idle";
       state.windLoading=false;
+      state.airQualityLoading=false;
       $("keyStatus").textContent="Une clé MAP_KEY est requise pour charger les détections.";
       updateUI();
       if(manual) openOnboarding();
@@ -704,10 +802,27 @@
     state.windLoading=true;
     state.windError=false;
     state.windAttemptedAt=Date.now();
+    state.airQuality=null;
+    state.airQualityLoading=true;
+    state.airQualityError=false;
+    state.airQualityAttemptedAt=Date.now();
     setLoading(true);
     updateUI();
 
+    let firesFinished=false;
     let windFinished=false;
+    let airQualityFinished=false;
+    const releaseController=()=>{
+      if(
+        firesFinished &&
+        windFinished &&
+        airQualityFinished &&
+        requestId===refreshRequestId &&
+        state.abortController===controller
+      ){
+        state.abortController=null;
+      }
+    };
     const windPromise=fetchWindForecast(
       request.location.lat,
       request.location.lon,
@@ -734,15 +849,31 @@
       }
     }).finally(()=>{
       windFinished=true;
-      if(
-        requestId===refreshRequestId &&
-        state.abortController===controller &&
-        !state.loading
-      ){
-        state.abortController=null;
-      }
+      releaseController();
     });
     void windPromise;
+
+    const airQualityPromise=fetchAirQuality(
+      request.location,
+      controller.signal
+    ).then(airQuality=>{
+      if(requestId!==refreshRequestId || controller.signal.aborted) return;
+      state.airQuality=airQuality;
+      state.airQualityAttemptedAt=airQuality.retrievedAt;
+      state.airQualityLoading=false;
+      state.airQualityError=false;
+      updateUI();
+    }).catch(err=>{
+      if(requestId!==refreshRequestId || err.name==="AbortError") return;
+      state.airQuality=null;
+      state.airQualityLoading=false;
+      state.airQualityError=true;
+      updateUI();
+    }).finally(()=>{
+      airQualityFinished=true;
+      releaseController();
+    });
+    void airQualityPromise;
 
     let result="success";
     try{
@@ -788,6 +919,9 @@
         state.wind=null;
         state.windLoading=false;
         state.windError=true;
+        state.airQuality=null;
+        state.airQualityLoading=false;
+        state.airQualityError=true;
         if(preserved){
           state.dataStatus="stale";
         }else{
@@ -806,14 +940,13 @@
         }
       }
     }finally{
+      firesFinished=true;
       if(validation && keyValidationController===controller){
         keyValidationController=null;
       }
       if(requestId===refreshRequestId){
         state.loading=false;
-        if(windFinished && state.abortController===controller){
-          state.abortController=null;
-        }
+        releaseController();
         setLoading(false);
         updateUI();
       }
@@ -1125,6 +1258,7 @@
   function updateUI(){
     const probableGroups=state.fireGroups.filter(group=>group.count>1);
     const hasResolvedData=Boolean(state.lastFetch);
+    const hasCurrentEmptyResult=state.dataStatus==="ready" && hasResolvedData && !state.points.length;
     const groupCount=hasResolvedData
       ?probableGroups.length.toLocaleString("fr-FR")
       :"—";
@@ -1146,12 +1280,60 @@
     $("riskBadge").style.color=smokeColor;
     $("riskBadge").style.borderColor=smokeColor;
     $("riskBadge").style.backgroundColor=`${smokeColor}1f`;
+    $("riskBadge").querySelector(".material-symbols-outlined").textContent=
+      hasCurrentEmptyResult?"search_off":smoke.level==="Indisponible"?"help_outline":"warning";
     $("smokeCity").textContent=currentLocation().name;
     $("smokeStatus").textContent=smoke.level;
     $("smokeStatus").style.color=smokeColor;
     $("smokeExplanation").textContent=smoke.explanation;
+    const airQuality=state.airQuality;
+    const airCategory=airQuality?.category||"Indisponible";
+    const airColor=airQualityColor(airCategory);
+    const airValue=airQuality?Math.round(airQuality.value):null;
+    const airLevel=airQuality?airQualityLevel(airCategory):0;
+    $("airQualityBadge").dataset.level=String(airLevel);
+    $("airQualityBadge").style.setProperty(
+      "--air-position",
+      airLevel?`${((airLevel-.5)/6)*100}%`:"50%"
+    );
+    $("airQualityBadge").style.setProperty("--air-current",airColor);
+    $("airQualityBadge").querySelectorAll(".air-quality-segment").forEach((segment,index)=>{
+      segment.classList.toggle("active",index<airLevel);
+      segment.classList.toggle("current",index===airLevel-1);
+    });
+    $("airQualityBadge").setAttribute(
+      "aria-label",
+      airQuality
+        ?`Qualité de l’air estimée : ${airCategory}, indice européen EAQI ${airValue}`
+        :state.airQualityLoading
+          ?"Qualité de l’air estimée : chargement en cours"
+          :"Qualité de l’air estimée : indisponible"
+    );
+    $("airQualityCity").textContent=currentLocation().name;
+    $("airQualityStatus").textContent=airQuality
+      ?`${airCategory} · EAQI ${airValue}`
+      :state.airQualityLoading
+        ?"Mise à jour de la qualité de l’air…"
+        :"Indisponible";
+    $("airQualityStatus").style.color=airColor;
+    $("airQualityPollutant").textContent=airQuality
+      ?airQuality.determining.length
+        ?`Polluant${airQuality.determining.length>1?"s":""} déterminant${airQuality.determining.length>1?"s":""} : ${airQuality.determining.join(" et ")}`
+        :"Aucun polluant déterminant"
+      :state.airQualityLoading
+        ?"Estimation CAMS en cours."
+        :state.airQualityAttemptedAt
+          ?`Dernier essai à ${fmtClock(state.airQualityAttemptedAt)}.`
+          :"Aucune estimation disponible.";
+    $("airQualityRetrieved").textContent=airQuality
+      ?`Récupérée à ${fmtClock(airQuality.retrievedAt)}`
+      :"";
     const distances=state.points.map(p=>haversine(currentLocation(),p));
-    $("nearest").textContent=distances.length?`${Math.min(...distances).toFixed(0)} km`:"—";
+    $("nearest").textContent=distances.length
+      ?`${Math.min(...distances).toFixed(0)} km`
+      :hasCurrentEmptyResult
+        ?"Aucune"
+        :"—";
     if(distances.length){
       const nearestIndex=distances.indexOf(Math.min(...distances));
       $("nearestDirection").textContent=compassDirection(bearing(currentLocation(),state.points[nearestIndex]));
@@ -2482,6 +2664,10 @@
     state.windLoading=true;
     state.windError=false;
     state.windAttemptedAt=null;
+    state.airQuality=null;
+    state.airQualityLoading=true;
+    state.airQualityError=false;
+    state.airQualityAttemptedAt=null;
     state.lastFetch=null;
     state.dataScope=null;
     state.dataStatus="loading";
@@ -2651,12 +2837,12 @@
   }
 
   function togglePassword(input,toggle){
-    const visible=input.type==="text";
-    input.type=visible?"password":"text";
-    toggle.querySelector(".material-symbols-outlined").textContent=visible
-      ?"visibility"
-      :"visibility_off";
-    toggle.setAttribute("aria-label",visible?"Afficher la clé":"Masquer la clé");
+    const reveal=input.classList.contains("is-masked");
+    input.classList.toggle("is-masked",!reveal);
+    toggle.querySelector(".material-symbols-outlined").textContent=reveal
+      ?"visibility_off"
+      :"visibility";
+    toggle.setAttribute("aria-label",reveal?"Masquer la clé":"Afficher la clé");
   }
 
   $("radius").value=String(state.settings.radius);
@@ -2726,6 +2912,10 @@
     state.windLoading=false;
     state.windError=false;
     state.windAttemptedAt=null;
+    state.airQuality=null;
+    state.airQualityLoading=false;
+    state.airQualityError=false;
+    state.airQualityAttemptedAt=null;
     state.lastFetch=null;
     state.dataScope=null;
     state.dataStatus="idle";
