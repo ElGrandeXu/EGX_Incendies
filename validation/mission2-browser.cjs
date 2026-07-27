@@ -1427,6 +1427,7 @@ async function run(){
       {name:"tablette paysage 1024×768",slug:"tablet-landscape",width:1024,height:768,desktop:true,theme:"light",detections:4},
       {name:"zoom navigateur 200 % (1440×1000)",slug:"browser-zoom-200",width:720,height:500,desktop:false,mobileDevice:false,scale:2,theme:"light",detections:4},
       {name:"mobile 390×844",slug:"mobile-390",width:390,height:844,desktop:false,theme:"light",detections:2},
+      {name:"mobile 412×915",slug:"mobile-412",width:412,height:915,desktop:false,theme:"dark",detections:4},
       {
         name:"petit mobile 320×568",
         slug:"mobile-small",
