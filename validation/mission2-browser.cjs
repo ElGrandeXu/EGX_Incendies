@@ -674,7 +674,7 @@ async function run(){
   for(const resource of [
     "",
     "style.css?v=11",
-    "app.js?v=10",
+    "app.js?v=11",
     "partage/index.html",
     "assets/social-preview-v2.png",
     "assets/icons/icon.svg?v=3",
@@ -738,7 +738,7 @@ async function run(){
   assert(
     "versions de cache CSS et JavaScript incrémentées",
     html.includes('href="./style.css?v=11"') &&
-      html.includes('src="./app.js?v=10"')
+      html.includes('src="./app.js?v=11"')
   );
   assert(
     "métadonnées sociales absolues et cohérentes",
@@ -1030,6 +1030,31 @@ async function run(){
     await evaluate("document.getElementById('refreshTop').click()",page.cdp);
     await waitFor(`window.__egxCounts.firms>${beforeRefresh}`,page.cdp);
     assert("actualisation FIRMS",true);
+    await waitFor("document.getElementById('mapStage').getAttribute('aria-busy')==='false'",page.cdp);
+    const beforeRapidSettings=await evaluate(`({
+      firms:window.__egxCounts.firms,
+      weather:window.__egxCounts.weather,
+      airQuality:window.__egxCounts.airQuality
+    })`,page.cdp);
+    await evaluate(`(()=>{
+      const radius=document.getElementById("radius");
+      for(const value of ["50","150","250"]){
+        radius.value=value;
+        radius.dispatchEvent(new Event("change",{bubbles:true}));
+      }
+    })()`,page.cdp);
+    await waitFor(
+      `window.__egxCounts.firms===${beforeRapidSettings.firms+4} &&
+        document.getElementById("mapStage").getAttribute("aria-busy")==="false"`,
+      page.cdp
+    );
+    assert(
+      "changements rapides de paramètres regroupés en une actualisation",
+      await evaluate(`window.__egxCounts.firms===${beforeRapidSettings.firms+4} &&
+        window.__egxCounts.weather===${beforeRapidSettings.weather+1} &&
+        window.__egxCounts.airQuality===${beforeRapidSettings.airQuality+1}`,page.cdp),
+      JSON.stringify(await evaluate("window.__egxCounts",page.cdp))
+    );
     await evaluate("document.querySelector('[data-nav=settings]').click()",page.cdp);
     await evaluate("document.getElementById('cityQuery').value='Lyon';document.getElementById('searchCity').click()",page.cdp);
     await waitFor("!document.getElementById('cityResults').hidden",page.cdp);

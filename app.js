@@ -14,6 +14,7 @@
   const NOMINATIM_TIMEOUT_MS = 10000;
   const NOMINATIM_MIN_INTERVAL_MS = 1000;
   const CITY_SEARCH_CACHE_MAX = 20;
+  const SETTINGS_REFRESH_DELAY_MS = 120;
   const MAIN_SMOKE_MAX_GROUPS = 16;
   const MAIN_SMOKE_CONCURRENCY = 3;
   const SMOKE_FORECAST_CACHE_TTL_MS = 10*60*1000;
@@ -104,6 +105,7 @@
   let mainSmokeRequestId = 0;
   let keyValidationController = null;
   let keyValidationRequestId = 0;
+  let settingsRefreshTimer = null;
   let onboardingPreviousFocus = null;
   const mainSmokeForecasts = new Map();
 
@@ -771,6 +773,8 @@
   }
 
   async function refresh({mapKey=state.mapKey,manual=false,validation=false}={}){
+    clearTimeout(settingsRefreshTimer);
+    settingsRefreshTimer=null;
     clearError();
     cancelMainSmokeRequests();
 
@@ -973,6 +977,14 @@
     setSourceStatus(sourceStatusMessage());
   }
 
+  function scheduleSettingsRefresh(){
+    clearTimeout(settingsRefreshTimer);
+    settingsRefreshTimer=setTimeout(()=>{
+      settingsRefreshTimer=null;
+      void refresh();
+    },SETTINGS_REFRESH_DELAY_MS);
+  }
+
   function hull(points){
     if(points.length<3) return points;
     const pts=[...points].sort((a,b)=>a.x===b.x?a.y-b.y:a.x-b.x);
@@ -1045,6 +1057,7 @@
             const candidates=buckets.get(key(x+dx,y+dy,t+dt));
             if(!candidates) continue;
             for(const j of candidates){
+              if(find(i)===find(j)) continue;
               const q=points[j];
               if(Math.abs(p.time-q.time)<=maxMs && haversine(p,q)<=maxKm) union(i,j);
             }
@@ -2936,7 +2949,7 @@
 
   $("radius").addEventListener("change",()=>{
     state.settings.radius=+$("radius").value;
-    saveSettings();refresh();
+    saveSettings();scheduleSettingsRefresh();
   });
 
   document.querySelectorAll("[data-hours]").forEach(button=>{
@@ -2953,7 +2966,7 @@
 
   $("hours").addEventListener("change",()=>{
     state.settings.hours=+$("hours").value;
-    saveSettings();refresh();
+    saveSettings();scheduleSettingsRefresh();
   });
 
   $("displayMode").addEventListener("change",()=>{
