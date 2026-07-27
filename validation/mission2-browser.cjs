@@ -588,6 +588,7 @@ async function run(){
     "",
     "style.css?v=10",
     "app.js?v=9",
+    "assets/social-preview-v1.png",
     "assets/icons/icon.svg?v=3",
     "assets/icons/icon-180.png?v=3",
     "assets/icons/icon-192.png?v=3",
@@ -643,6 +644,24 @@ async function run(){
     "versions de cache CSS et JavaScript incrémentées",
     html.includes('href="./style.css?v=10"') &&
       html.includes('src="./app.js?v=9"')
+  );
+  assert(
+    "métadonnées sociales absolues et cohérentes",
+    html.includes('<link rel="canonical" href="https://elgrandexu.github.io/EGX_Incendies/">') &&
+      html.includes('<meta property="og:type" content="website">') &&
+      html.includes('<meta property="og:url" content="https://elgrandexu.github.io/EGX_Incendies/">') &&
+      html.includes('<meta property="og:title" content="EGX Incendies — surveillez les foyers dans le monde">') &&
+      html.includes('<meta property="og:image" content="https://elgrandexu.github.io/EGX_Incendies/assets/social-preview-v1.png">') &&
+      html.includes('<meta property="og:image:width" content="1200">') &&
+      html.includes('<meta property="og:image:height" content="627">') &&
+      html.includes('<meta name="twitter:card" content="summary_large_image">') &&
+      html.includes('<meta name="twitter:image" content="https://elgrandexu.github.io/EGX_Incendies/assets/social-preview-v1.png">')
+  );
+  const socialPreviewDimensions=pngDimensions(path.join(APP,"assets","social-preview-v1.png"));
+  assert(
+    "aperçu social au format 1200×627",
+    socialPreviewDimensions?.width===1200 && socialPreviewDimensions.height===627,
+    JSON.stringify(socialPreviewDimensions)
   );
   assert("CSP statique présente",html.includes('http-equiv="Content-Security-Policy"'));
   assert(
@@ -1233,6 +1252,7 @@ async function run(){
     const responsiveShots={};
     let smallMapShot=null;
     for(const test of [
+      {name:"aperçu social 1200×627",slug:"social-preview",width:1200,height:627,desktop:true,theme:"light",detections:12},
       {name:"desktop étroit 1024×900",slug:"desktop-1024",width:1024,height:900,desktop:true,theme:"light",detections:40},
       {name:"tablette portrait 768×1024",slug:"tablet-portrait",width:768,height:1024,desktop:false,theme:"dark",detections:4},
       {name:"tablette paysage 1024×768",slug:"tablet-landscape",width:1024,height:768,desktop:true,theme:"light",detections:4},
