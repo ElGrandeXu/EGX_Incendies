@@ -815,6 +815,13 @@ async function run(){
     /setInterval\([\s\S]*10\*60\*1000/.test(source)
   );
   assert(
+    "caches mémoire de recherche bornés",
+    source.includes("const CITY_SEARCH_CACHE_MAX = 20") &&
+      source.includes("const LOCALITY_CACHE_MAX = 8") &&
+      source.includes("const LOCALITY_CACHE_TTL_MS = 30*60*1000") &&
+      source.includes("function pruneLocalityCache()")
+  );
+  assert(
     "libellé automatique retiré de l’en-tête",
     !html.includes("Auto : 10 min") && !html.includes("auto-label")
   );
@@ -1807,6 +1814,32 @@ async function run(){
     await localityState(page.cdp);
     const secondCount=await evaluate("window.__egxCounts.overpass",page.cdp);
     assert("réouverture utilise le cache mémoire",firstCount===1 && secondCount===1,`${firstCount}/${secondCount}`);
+    await closePage(page,port);
+
+    const cacheGroups=Array.from({length:10},(_,index)=>point(5+index*8,index%2?6:0));
+    page=await openPage(baseUrl,port,scenario({
+      fireGroups:cacheGroups,
+      isolated:true,
+      overpass:{mode:"success",elements:[]}
+    }));
+    await waitFor("document.querySelectorAll('.feed-item').length===10",page.cdp);
+    await evaluate("document.getElementById('openDetections').click()",page.cdp);
+    for(let index=0;index<cacheGroups.length;index++){
+      await evaluate(`document.querySelectorAll(".feed-item")[${index}].click()`,page.cdp);
+      await waitFor(`window.__egxCounts.overpass===${index+1}`,page.cdp);
+      await localityState(page.cdp);
+      await evaluate("document.getElementById('closeDetail').click()",page.cdp);
+    }
+    await evaluate("document.querySelectorAll('.feed-item')[9].click()",page.cdp);
+    await localityState(page.cdp);
+    const countAfterRecent=await evaluate("window.__egxCounts.overpass",page.cdp);
+    await evaluate("document.getElementById('closeDetail').click();document.querySelectorAll('.feed-item')[0].click()",page.cdp);
+    await waitFor("window.__egxCounts.overpass===11",page.cdp);
+    assert(
+      "cache Overpass LRU limité à huit trajets",
+      countAfterRecent===10,
+      `${countAfterRecent}/11`
+    );
     await closePage(page,port);
 
     page=await openPage(baseUrl,port,scenario({
