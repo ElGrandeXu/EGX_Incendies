@@ -674,7 +674,7 @@ async function run(){
   for(const resource of [
     "",
     "style.css?v=11",
-    "app.js?v=10",
+    "app.js?v=11",
     "partage/index.html",
     "assets/social-preview-v2.png",
     "assets/icons/icon.svg?v=3",
@@ -738,7 +738,7 @@ async function run(){
   assert(
     "versions de cache CSS et JavaScript incrémentées",
     html.includes('href="./style.css?v=11"') &&
-      html.includes('src="./app.js?v=10"')
+      html.includes('src="./app.js?v=11"')
   );
   assert(
     "métadonnées sociales absolues et cohérentes",
@@ -813,6 +813,13 @@ async function run(){
   assert(
     "actualisation automatique 10 min conservée",
     /setInterval\([\s\S]*10\*60\*1000/.test(source)
+  );
+  assert(
+    "caches mémoire de recherche bornés",
+    source.includes("const CITY_SEARCH_CACHE_MAX = 20") &&
+      source.includes("const LOCALITY_CACHE_MAX = 8") &&
+      source.includes("const LOCALITY_CACHE_TTL_MS = 30*60*1000") &&
+      source.includes("function pruneLocalityCache()")
   );
   assert(
     "libellé automatique retiré de l’en-tête",
@@ -1030,6 +1037,31 @@ async function run(){
     await evaluate("document.getElementById('refreshTop').click()",page.cdp);
     await waitFor(`window.__egxCounts.firms>${beforeRefresh}`,page.cdp);
     assert("actualisation FIRMS",true);
+    await waitFor("document.getElementById('mapStage').getAttribute('aria-busy')==='false'",page.cdp);
+    const beforeRapidSettings=await evaluate(`({
+      firms:window.__egxCounts.firms,
+      weather:window.__egxCounts.weather,
+      airQuality:window.__egxCounts.airQuality
+    })`,page.cdp);
+    await evaluate(`(()=>{
+      const radius=document.getElementById("radius");
+      for(const value of ["50","150","250"]){
+        radius.value=value;
+        radius.dispatchEvent(new Event("change",{bubbles:true}));
+      }
+    })()`,page.cdp);
+    await waitFor(
+      `window.__egxCounts.firms===${beforeRapidSettings.firms+4} &&
+        document.getElementById("mapStage").getAttribute("aria-busy")==="false"`,
+      page.cdp
+    );
+    assert(
+      "changements rapides de paramètres regroupés en une actualisation",
+      await evaluate(`window.__egxCounts.firms===${beforeRapidSettings.firms+4} &&
+        window.__egxCounts.weather===${beforeRapidSettings.weather+1} &&
+        window.__egxCounts.airQuality===${beforeRapidSettings.airQuality+1}`,page.cdp),
+      JSON.stringify(await evaluate("window.__egxCounts",page.cdp))
+    );
     await evaluate("document.querySelector('[data-nav=settings]').click()",page.cdp);
     await evaluate("document.getElementById('cityQuery').value='Lyon';document.getElementById('searchCity').click()",page.cdp);
     await waitFor("!document.getElementById('cityResults').hidden",page.cdp);
@@ -1395,6 +1427,7 @@ async function run(){
       {name:"tablette paysage 1024×768",slug:"tablet-landscape",width:1024,height:768,desktop:true,theme:"light",detections:4},
       {name:"zoom navigateur 200 % (1440×1000)",slug:"browser-zoom-200",width:720,height:500,desktop:false,mobileDevice:false,scale:2,theme:"light",detections:4},
       {name:"mobile 390×844",slug:"mobile-390",width:390,height:844,desktop:false,theme:"light",detections:2},
+      {name:"mobile 412×915",slug:"mobile-412",width:412,height:915,desktop:false,theme:"dark",detections:4},
       {
         name:"petit mobile 320×568",
         slug:"mobile-small",
@@ -1782,6 +1815,32 @@ async function run(){
     await localityState(page.cdp);
     const secondCount=await evaluate("window.__egxCounts.overpass",page.cdp);
     assert("réouverture utilise le cache mémoire",firstCount===1 && secondCount===1,`${firstCount}/${secondCount}`);
+    await closePage(page,port);
+
+    const cacheGroups=Array.from({length:10},(_,index)=>point(5+index*8,index%2?6:0));
+    page=await openPage(baseUrl,port,scenario({
+      fireGroups:cacheGroups,
+      isolated:true,
+      overpass:{mode:"success",elements:[]}
+    }));
+    await waitFor("document.querySelectorAll('.feed-item').length===10",page.cdp);
+    await evaluate("document.getElementById('openDetections').click()",page.cdp);
+    for(let index=0;index<cacheGroups.length;index++){
+      await evaluate(`document.querySelectorAll(".feed-item")[${index}].click()`,page.cdp);
+      await waitFor(`window.__egxCounts.overpass===${index+1}`,page.cdp);
+      await localityState(page.cdp);
+      await evaluate("document.getElementById('closeDetail').click()",page.cdp);
+    }
+    await evaluate("document.querySelectorAll('.feed-item')[9].click()",page.cdp);
+    await localityState(page.cdp);
+    const countAfterRecent=await evaluate("window.__egxCounts.overpass",page.cdp);
+    await evaluate("document.getElementById('closeDetail').click();document.querySelectorAll('.feed-item')[0].click()",page.cdp);
+    await waitFor("window.__egxCounts.overpass===11",page.cdp);
+    assert(
+      "cache Overpass LRU limité à huit trajets",
+      countAfterRecent===10,
+      `${countAfterRecent}/11`
+    );
     await closePage(page,port);
 
     page=await openPage(baseUrl,port,scenario({

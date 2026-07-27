@@ -14,6 +14,7 @@
   const NOMINATIM_TIMEOUT_MS = 10000;
   const NOMINATIM_MIN_INTERVAL_MS = 1000;
   const CITY_SEARCH_CACHE_MAX = 20;
+  const SETTINGS_REFRESH_DELAY_MS = 120;
   const MAIN_SMOKE_MAX_GROUPS = 16;
   const MAIN_SMOKE_CONCURRENCY = 3;
   const SMOKE_FORECAST_CACHE_TTL_MS = 10*60*1000;
@@ -26,6 +27,8 @@
   const OVERPASS_MARGIN_KM = 2;
   const LOCALITY_TYPES = new Set(["city","town","village","hamlet"]);
   const LOCALITY_CACHE_VERSION = 1;
+  const LOCALITY_CACHE_MAX = 8;
+  const LOCALITY_CACHE_TTL_MS = 30*60*1000;
   const LOCALITY_HORIZONS = [
     {key:"0-3",maxHours:3,label:"Début du tracé"},
     {key:"3-6",maxHours:6,label:"Suite du tracé"},
@@ -104,6 +107,7 @@
   let mainSmokeRequestId = 0;
   let keyValidationController = null;
   let keyValidationRequestId = 0;
+  let settingsRefreshTimer = null;
   let onboardingPreviousFocus = null;
   const mainSmokeForecasts = new Map();
 
@@ -771,6 +775,8 @@
   }
 
   async function refresh({mapKey=state.mapKey,manual=false,validation=false}={}){
+    clearTimeout(settingsRefreshTimer);
+    settingsRefreshTimer=null;
     clearError();
     cancelMainSmokeRequests();
 
@@ -973,6 +979,14 @@
     setSourceStatus(sourceStatusMessage());
   }
 
+  function scheduleSettingsRefresh(){
+    clearTimeout(settingsRefreshTimer);
+    settingsRefreshTimer=setTimeout(()=>{
+      settingsRefreshTimer=null;
+      void refresh();
+    },SETTINGS_REFRESH_DELAY_MS);
+  }
+
   function hull(points){
     if(points.length<3) return points;
     const pts=[...points].sort((a,b)=>a.x===b.x?a.y-b.y:a.x-b.x);
@@ -1045,6 +1059,7 @@
             const candidates=buckets.get(key(x+dx,y+dy,t+dt));
             if(!candidates) continue;
             for(const j of candidates){
+              if(find(i)===find(j)) continue;
               const q=points[j];
               if(Math.abs(p.time-q.time)<=maxMs && haversine(p,q)<=maxKm) union(i,j);
             }
@@ -1768,6 +1783,20 @@
     return deduped;
   }
 
+  function pruneLocalityCache(){
+    const now=Date.now();
+    for(const [key,entry] of localityCache){
+      if(entry.status==="resolved" && entry.expiresAt<=now){
+        localityCache.delete(key);
+      }
+    }
+    while(localityCache.size>LOCALITY_CACHE_MAX){
+      const resolved=[...localityCache].find(([,entry])=>entry.status==="resolved");
+      if(!resolved) break;
+      localityCache.delete(resolved[0]);
+    }
+  }
+
   async function fetchWithTimeout(url,options,parentSignal,timeoutMs,timeoutMessage="Délai dépassé"){
     const controller=new AbortController();
     const abortFromParent=()=>controller.abort(parentSignal?.reason);
@@ -1813,9 +1842,12 @@
   }
 
   async function fetchOverpassLocalities(route,signal){
+    pruneLocalityCache();
     const request=buildOverpassRequest(route);
     const cached=localityCache.get(request.key);
     if(cached?.status==="resolved"){
+      localityCache.delete(request.key);
+      localityCache.set(request.key,cached);
       return {localities:cached.localities,request,fromCache:true};
     }
     if(cached?.status==="pending" && !cached.signal?.aborted){
@@ -1855,7 +1887,13 @@
     localityCache.set(request.key,{status:"pending",promise,signal});
     try{
       const localities=await promise;
-      localityCache.set(request.key,{status:"resolved",localities});
+      localityCache.delete(request.key);
+      localityCache.set(request.key,{
+        status:"resolved",
+        localities,
+        expiresAt:Date.now()+LOCALITY_CACHE_TTL_MS
+      });
+      pruneLocalityCache();
       return {localities,request,fromCache:false};
     }catch(err){
       if(localityCache.get(request.key)?.promise===promise){
@@ -2936,7 +2974,7 @@
 
   $("radius").addEventListener("change",()=>{
     state.settings.radius=+$("radius").value;
-    saveSettings();refresh();
+    saveSettings();scheduleSettingsRefresh();
   });
 
   document.querySelectorAll("[data-hours]").forEach(button=>{
@@ -2953,7 +2991,7 @@
 
   $("hours").addEventListener("change",()=>{
     state.settings.hours=+$("hours").value;
-    saveSettings();refresh();
+    saveSettings();scheduleSettingsRefresh();
   });
 
   $("displayMode").addEventListener("change",()=>{
