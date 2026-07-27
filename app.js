@@ -51,7 +51,13 @@
     dataScope: null,
     loading: false,
     abortController: null,
-    settings: {radius:100,hours:72,mode:"points+hulls",location:{...DEFAULT_LOCATION}}
+    settings: {
+      radius:100,
+      hours:72,
+      mode:"points+hulls",
+      smokeVisible:true,
+      location:{...DEFAULT_LOCATION}
+    }
   };
 
   try{
@@ -71,6 +77,7 @@
     state.settings.radius=VALID_RADII.has(radius)?radius:100;
     state.settings.hours=VALID_HOURS.has(hours)?hours:72;
     state.settings.mode=VALID_MODES.has(saved.mode)?saved.mode:"points+hulls";
+    state.settings.smokeVisible=saved.smokeVisible!==false;
   }catch{}
 
   const currentLocation = () => state.settings.location;
@@ -805,7 +812,7 @@
     const buttons=[$("refreshTop"),$("refreshBtn")];
     buttons.forEach(btn=>btn.disabled=on);
     $("refreshTop").innerHTML=on
-      ?'<span class="loading-spin"></span><span class="refresh-button-label">Mise à jour…</span>'
+      ?'<span class="loading-spin"></span><span class="refresh-button-label">Patientez</span>'
       :'<span class="material-symbols-outlined" aria-hidden="true">refresh</span><span class="refresh-button-label">Actualiser</span>';
     $("refreshTop").setAttribute(
       "aria-label",
@@ -1862,7 +1869,7 @@
 
   function renderMainSmokeLayers(){
     mainSmokeLayer.clearLayers();
-    if(!mainSmokeForecasts.size) return;
+    if(!state.settings.smokeVisible || !mainSmokeForecasts.size) return;
 
     const occupiedArrows=[];
     const visible=selectSignificantFireGroups();
@@ -2536,6 +2543,7 @@
     button.setAttribute("aria-pressed",String(active));
   });
   $("displayMode").value=state.settings.mode;
+  $("smokeToggle").checked=state.settings.smokeVisible;
   $("mapKey").value=state.mapKey;
 
   $("settingsBtn").addEventListener("click",openDrawer);
@@ -2646,6 +2654,12 @@
   $("displayMode").addEventListener("change",()=>{
     state.settings.mode=$("displayMode").value;
     saveSettings();renderLayers();
+  });
+
+  $("smokeToggle").addEventListener("change",()=>{
+    state.settings.smokeVisible=$("smokeToggle").checked;
+    saveSettings();
+    renderMainSmokeLayers();
   });
 
   $("refreshTop").addEventListener("click",refresh);

@@ -225,12 +225,16 @@ function initScript(config){
   return `(()=>{
     const scenario=${JSON.stringify(config)};
     localStorage.clear();
-    localStorage.setItem("egx_incendies_settings",JSON.stringify({
+    const savedSettings={
       radius:scenario.radius,
       hours:48,
       mode:scenario.mode,
       location:scenario.location
-    }));
+    };
+    if(typeof scenario.smokeVisible==="boolean"){
+      savedSettings.smokeVisible=scenario.smokeVisible;
+    }
+    localStorage.setItem("egx_incendies_settings",JSON.stringify(savedSettings));
     localStorage.setItem("egx_incendies_theme",scenario.theme);
     if(!scenario.noKey) localStorage.setItem("egx_incendies_firms_key","TEST_KEY_NOT_REAL");
     window.__egxCounts={
@@ -538,6 +542,7 @@ async function mainSmokeState(cdp){
     arrowSymbols:[...document.querySelectorAll(".main-smoke-direction-arrow")].map(node=>node.textContent.trim()),
     timeLabels:document.querySelectorAll(".main-smoke-horizon-label").length,
     directions:document.querySelectorAll(".main-smoke-direction-line").length,
+    toggleChecked:document.getElementById("smokeToggle").checked,
     weather:window.__egxCounts.weather,
     weatherMaxActive:window.__egxCounts.weatherMaxActive,
     weatherAborts:window.__egxCounts.weatherAborts
@@ -552,7 +557,7 @@ async function run(){
   const server=staticServer();
   await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
   const baseUrl=`http://127.0.0.1:${server.address().port}/`;
-  for(const resource of ["","style.css?v=7","app.js?v=7"]){
+  for(const resource of ["","style.css?v=8","app.js?v=8"]){
     const response=await fetch(`${baseUrl}${resource}`);
     assert(`HTTP 200 ${resource||"/"}`,response.status===200,String(response.status));
   }
@@ -599,6 +604,12 @@ async function run(){
       !html.includes("Direction possible des fumées · 12 h") &&
       !html.includes("Analyse aux échéances 3 h, 6 h et 12 h")
   );
+  assert(
+    "contrôle natif des trajectoires présent sur la carte",
+    html.includes('id="smokeToggle"') &&
+      html.includes('type="checkbox"') &&
+      html.includes("Trajectoires de fumée")
+  );
   const profile=fs.mkdtempSync(path.join(os.tmpdir(),"egx-chrome-m2-"));
   const chrome=spawn(CHROME,[
     "--headless=new",
@@ -644,13 +655,15 @@ async function run(){
       overpass:{mode:"success",elements:dense}
     }));
     assert(
-      "actualisation de la carte explicite sans agrandir l’en-tête",
+      "actualisation de la carte explicite et plus compacte",
       await evaluate(`(()=>{
         const button=document.getElementById("refreshTop");
         const style=getComputedStyle(button);
+        const rect=button.getBoundingClientRect();
         return button.textContent.includes("Actualiser") &&
           button.getAttribute("aria-label")==="Actualiser la carte" &&
-          button.getBoundingClientRect().height<=48 &&
+          rect.height<=40 &&
+          rect.width<104 &&
           style.backgroundColor!=="rgba(0, 0, 0, 0)";
       })()`,page.cdp)
     );
@@ -663,7 +676,11 @@ async function run(){
       "réglages historiques restaurés",
       await evaluate(`(()=>{
         const saved=JSON.parse(localStorage.getItem("egx_incendies_settings"));
-        return saved.radius===250 && saved.hours===48 && saved.mode==="points+hulls";
+        return saved.radius===250 &&
+          saved.hours===48 &&
+          saved.mode==="points+hulls" &&
+          !Object.hasOwn(saved,"smokeVisible") &&
+          document.getElementById("smokeToggle").checked;
       })()`,page.cdp)
     );
     assert(
@@ -746,6 +763,46 @@ async function run(){
       "carte principale avec une flèche par segment",
       mainState.arrows===3 && mainState.arrowSymbols.every(symbol=>symbol==="↑"),
       JSON.stringify(mainState)
+    );
+    assert(
+      "contrôle des trajectoires visible et accessible sur mobile",
+      await evaluate(`(()=>{
+        const control=document.querySelector(".smoke-layer-control");
+        const input=document.getElementById("smokeToggle");
+        const rect=control.getBoundingClientRect();
+        input.focus();
+        return input.type==="checkbox" &&
+          input.checked &&
+          document.activeElement===input &&
+          control.textContent.includes("Trajectoires de fumée") &&
+          rect.width>150 &&
+          rect.right<=innerWidth-60 &&
+          rect.bottom<=document.querySelector(".map-summary").getBoundingClientRect().top;
+      })()`,page.cdp)
+    );
+    const weatherBeforeSmokeToggle=mainState.weather;
+    await evaluate("document.getElementById('smokeToggle').click()",page.cdp);
+    await waitFor("document.querySelectorAll('.main-smoke-corridor,.main-smoke-direction-arrow,.main-smoke-direction-line').length===0",page.cdp);
+    assert(
+      "désactivation masque seulement les trajectoires",
+      await evaluate(`(()=>{
+        const saved=JSON.parse(localStorage.getItem("egx_incendies_settings"));
+        return !document.getElementById("smokeToggle").checked &&
+          saved.smokeVisible===false &&
+          document.querySelectorAll(".feed-item").length===1 &&
+          window.__egxCounts.weather===${weatherBeforeSmokeToggle};
+      })()`,page.cdp)
+    );
+    await evaluate("document.getElementById('smokeToggle').click()",page.cdp);
+    await waitFor("document.querySelectorAll('.main-smoke-direction-arrow').length===3",page.cdp);
+    assert(
+      "réactivation restaure les trajectoires sans appel API",
+      await evaluate(`(()=>{
+        const saved=JSON.parse(localStorage.getItem("egx_incendies_settings"));
+        return document.getElementById("smokeToggle").checked &&
+          saved.smokeVisible===true &&
+          window.__egxCounts.weather===${weatherBeforeSmokeToggle};
+      })()`,page.cdp)
     );
     assert("météo groupée au seul foyer significatif",mainState.weather===2,String(mainState.weather));
     assert(
@@ -1294,7 +1351,7 @@ async function run(){
       "chargement FIRMS annoncé sans faux état vide",
       await waitFor(`document.getElementById("sourceStatusText").textContent.includes("Connexion") &&
         document.getElementById("feed").textContent.includes("Chargement") &&
-        document.getElementById("refreshTop").textContent.includes("Mise à jour") &&
+        document.getElementById("refreshTop").textContent.includes("Patientez") &&
         !document.getElementById("feed").textContent.includes("Aucune détection")`,page.cdp)
     );
     await waitFor("document.querySelectorAll('.feed-item').length===1",page.cdp);
