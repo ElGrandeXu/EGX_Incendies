@@ -212,23 +212,23 @@ select:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  min-width: 104px;
-  height: 44px;
+  gap: 4px;
+  width: 92px;
+  height: 38px;
   flex: 0 0 auto;
-  padding: 0 10px;
+  padding: 0 8px;
   border: 1px solid var(--primary);
-  border-radius: var(--radius-md);
+  border-radius: 10px;
   background: var(--primary);
   box-shadow: 0 2px 8px rgba(25, 28, 30, .16);
   color: var(--on-primary);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
 }
 
 .refresh-button .material-symbols-outlined {
-  font-size: 20px;
+  font-size: 18px;
 }
 
 #settingsBtn { display: none; }
@@ -347,6 +347,70 @@ html[data-theme="dark"] .main-smoke-direction-arrow {
 
 @keyframes status-pulse {
   50% { opacity: .35; transform: scale(.78); }
+}
+
+.smoke-layer-control {
+  position: absolute;
+  z-index: 800;
+  bottom: calc(var(--mobile-sheet-height) + 12px);
+  left: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 42px;
+  max-width: calc(100% - 82px);
+  padding: 8px 11px;
+  border: 1px solid var(--outline);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow: 0 2px 8px rgba(25,28,30,.15);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+  cursor: pointer;
+  user-select: none;
+  backdrop-filter: blur(12px);
+}
+
+.smoke-layer-control input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  flex: 0 0 18px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.smoke-layer-control input[type="checkbox"]:focus,
+.smoke-layer-control input[type="checkbox"]:focus-visible {
+  outline: 0;
+  box-shadow: none;
+}
+
+.smoke-layer-control .material-symbols-outlined {
+  flex: 0 0 auto;
+  color: #405861;
+  font-size: 20px;
+}
+
+.smoke-layer-control:has(input:not(:checked)) {
+  color: var(--text-soft);
+}
+
+.smoke-layer-control:has(input:not(:checked)) .material-symbols-outlined {
+  opacity: .48;
+}
+
+.smoke-layer-control:has(input:focus-visible) {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+html[data-theme="dark"] .smoke-layer-control .material-symbols-outlined {
+  color: #b8d5dc;
 }
 
 .map-controls {
@@ -1799,6 +1863,12 @@ select:focus {
     bottom: 232px;
   }
 
+  .smoke-layer-control {
+    top: 16px;
+    bottom: auto;
+    left: 20px;
+  }
+
   .error-banner {
     right: auto;
     left: 50%;
@@ -1932,6 +2002,7 @@ select:focus {
   .summary-grid { margin-top: 12px; }
   .map-controls { bottom: 20px; }
   .map-status { top: 18px; }
+  .smoke-layer-control { top: 18px; bottom: auto; left: 20px; }
   .error-banner { top: 70px; right: 20px; left: 20px; }
   .toast { right: calc(var(--side-panel-width) + 24px); bottom: 20px; left: auto; width: 360px; }
 
