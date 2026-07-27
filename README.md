@@ -157,7 +157,13 @@ node validation/mission2-browser.cjs
 
 Le navigateur est détecté dans les emplacements courants. Sinon, définissez la variable `CHROME_PATH`. Le banc vérifie l’intégrité de Leaflet, simule les réponses réussies, partielles et échouées des API, puis teste les parcours sur mobile, tablette et ordinateur.
 
-Le rapport factuel, les mesures avant/après, les limites et la procédure de rollback sont consignés dans [`docs/audit-2026-07-26.md`](docs/audit-2026-07-26.md).
+Le profil reproductible de l’actualisation utilise le même navigateur, sans dépendance supplémentaire :
+
+```sh
+node validation/refresh-performance.cjs
+```
+
+Le rapport actuel, les mesures avant/après, les limites et la procédure de rollback sont consignés dans [`docs/audit-2026-07-27.md`](docs/audit-2026-07-27.md).
 
 ## Licence
 
