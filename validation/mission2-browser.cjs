@@ -575,20 +575,29 @@ async function run(){
     "",
     "style.css?v=9",
     "app.js?v=8",
-    "icon.svg",
-    "icon-180.png",
-    "icon-192.png",
-    "icon-512.png",
-    "icon-maskable-512.png",
-    "manifest.webmanifest"
+    "assets/icons/icon.svg?v=3",
+    "assets/icons/icon-180.png?v=3",
+    "assets/icons/icon-192.png?v=3",
+    "assets/icons/icon-512.png?v=3",
+    "assets/icons/icon-maskable-512.png?v=3",
+    "assets/manifest.webmanifest?v=3"
   ]){
     const response=await fetch(`${baseUrl}${resource}`);
     assert(`HTTP 200 ${resource||"/"}`,response.status===200,String(response.status));
   }
+  const legacyAssetStatuses=await Promise.all(
+    ["icon.svg","icon-180.png","icon-192.png","icon-512.png","icon-maskable-512.png","manifest.webmanifest"]
+      .map(async resource=>(await fetch(`${baseUrl}${resource}`)).status)
+  );
+  assert(
+    "anciens assets racine absents",
+    legacyAssetStatuses.every(status=>status===404),
+    legacyAssetStatuses.join("|")
+  );
   const html=fs.readFileSync(path.join(APP,"index.html"),"utf8");
   const source=fs.readFileSync(path.join(APP,"app.js"),"utf8");
-  const iconSource=fs.readFileSync(path.join(APP,"icon.svg"),"utf8");
-  const manifest=JSON.parse(fs.readFileSync(path.join(APP,"manifest.webmanifest"),"utf8"));
+  const iconSource=fs.readFileSync(path.join(APP,"assets","icons","icon.svg"),"utf8");
+  const manifest=JSON.parse(fs.readFileSync(path.join(APP,"assets","manifest.webmanifest"),"utf8"));
   const ids=[...html.matchAll(/\sid="([^"]+)"/g)].map(match=>match[1]);
   const uniqueIds=new Set(ids);
   const bindings=[...source.matchAll(/\$\("([^"]+)"\)/g)].map(match=>match[1]);
@@ -641,17 +650,17 @@ async function run(){
   assert(
     "icônes mobiles déclarées",
     html.includes('rel="apple-touch-icon"') &&
-      html.includes('href="./icon-180.png?v=2"') &&
-      html.includes('rel="icon" type="image/svg+xml" href="./icon.svg?v=2"') &&
-      html.includes('rel="manifest" href="./manifest.webmanifest?v=2"')
+      html.includes('href="./assets/icons/icon-180.png?v=3"') &&
+      html.includes('rel="icon" type="image/svg+xml" href="./assets/icons/icon.svg?v=3"') &&
+      html.includes('rel="manifest" href="./assets/manifest.webmanifest?v=3"')
   );
   assert(
     "dimensions PNG conformes",
     [
-      ["icon-180.png",180],
-      ["icon-192.png",192],
-      ["icon-512.png",512],
-      ["icon-maskable-512.png",512]
+      [path.join("assets","icons","icon-180.png"),180],
+      [path.join("assets","icons","icon-192.png"),192],
+      [path.join("assets","icons","icon-512.png"),512],
+      [path.join("assets","icons","icon-maskable-512.png"),512]
     ].every(([file,size])=>{
       const dimensions=pngDimensions(path.join(APP,file));
       return dimensions?.width===size && dimensions.height===size;
@@ -661,17 +670,19 @@ async function run(){
     "manifeste navigateur sans hors-ligne",
     manifest.name==="EGX Incendies" &&
       manifest.short_name==="EGX" &&
-      manifest.start_url==="./" &&
-      manifest.scope==="./" &&
+      manifest.start_url==="../" &&
+      manifest.scope==="../" &&
+      new URL(manifest.start_url,`${baseUrl}assets/manifest.webmanifest`).href===baseUrl &&
+      new URL(manifest.scope,`${baseUrl}assets/manifest.webmanifest`).href===baseUrl &&
       manifest.display==="browser" &&
       !source.includes("serviceWorker") &&
       !fs.existsSync(path.join(APP,"service-worker.js"))
   );
   assert(
     "icônes any et maskable déclarées",
-    manifest.icons.some(icon=>icon.src==="./icon-192.png?v=2" && icon.sizes==="192x192" && icon.purpose==="any") &&
-      manifest.icons.some(icon=>icon.src==="./icon-512.png?v=2" && icon.sizes==="512x512" && icon.purpose==="any") &&
-      manifest.icons.some(icon=>icon.src==="./icon-maskable-512.png?v=2" && icon.sizes==="512x512" && icon.purpose==="maskable")
+    manifest.icons.some(icon=>icon.src==="./icons/icon-192.png?v=3" && icon.sizes==="192x192" && icon.purpose==="any") &&
+      manifest.icons.some(icon=>icon.src==="./icons/icon-512.png?v=3" && icon.sizes==="512x512" && icon.purpose==="any") &&
+      manifest.icons.some(icon=>icon.src==="./icons/icon-maskable-512.png?v=3" && icon.sizes==="512x512" && icon.purpose==="maskable")
   );
   assert(
     "contenu du master limité à la zone maskable",

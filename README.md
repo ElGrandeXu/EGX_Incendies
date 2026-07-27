@@ -68,7 +68,7 @@ Les captures montrent la version mobile actuelle. La clé NASA n’apparaît dan
 - Consultez les détections et les foyers probables.
 - Lisez la distance la plus proche, le vent et le risque lié aux fumées.
 - Suivez les corridors neutres et les flèches pour lire la direction potentielle des fumées, sans échéance temporelle précise.
-- Utilisez la case **Trajectoires de fumée** sur la carte pour les afficher ou les masquer instantanément.
+- Utilisez la case **Fumées** sur la carte pour les afficher ou les masquer instantanément.
 - Touchez un foyer, son corridor ou une flèche pour ouvrir ses détails.
 - Dans le détail, consultez la tendance des vents et les localités potentiellement dans l’axe.
 - Touchez **Foyers probables** pour consulter la liste.
@@ -130,6 +130,11 @@ Le projet utilise trois fichiers à la racine du dépôt :
 - `index.html` contient la structure de l’application ;
 - `style.css` contient la présentation responsive et les thèmes ;
 - `app.js` charge les données et gère les interactions.
+
+Les ressources statiques sont regroupées sous `assets/` :
+
+- `assets/manifest.webmanifest` décrit le raccourci navigateur ;
+- `assets/icons/` contient le master SVG et les déclinaisons mobiles.
 
 L’application fonctionne sans serveur EGX et sans étape de compilation. GitHub Pages publie le site. Elle interroge NASA FIRMS, Open-Meteo, OpenStreetMap et Nominatim.
 
