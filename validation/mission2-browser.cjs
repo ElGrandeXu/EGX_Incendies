@@ -251,8 +251,14 @@ function initScript(config){
     localStorage.setItem("egx_incendies_settings",JSON.stringify(savedSettings));
     localStorage.setItem("egx_incendies_theme",scenario.theme);
     if(!scenario.noKey) localStorage.setItem("egx_incendies_firms_key","TEST_KEY_NOT_REAL");
+    if(scenario.accelerateFirmsTimeout){
+      const nativeSetTimeout=window.setTimeout.bind(window);
+      window.setTimeout=(handler,delay,...args)=>
+        nativeSetTimeout(handler,delay===20000?50:delay,...args);
+    }
     window.__egxCounts={
       firms:0,
+      firmsKeys:[],
       firmsAborts:0,
       weather:0,
       weatherActive:0,
@@ -351,9 +357,12 @@ function initScript(config){
       const url=String(input?.url||input);
       if(url.includes("firms.modaps.eosdis.nasa.gov")){
         const call=window.__egxCounts.firms++;
+        const keyMatch=url.match(/\\/api\\/area\\/csv\\/([^/]+)/);
+        window.__egxCounts.firmsKeys.push(keyMatch?decodeURIComponent(keyMatch[1]):"");
         const refreshIndex=Math.floor(call/4);
         const entry=scenario.firms.sequence?.[refreshIndex]||scenario.firms;
         const failedSource=(entry.failSources||[]).some(source=>url.includes(\`/\${source}/\`));
+        if(entry.mode==="network") return Promise.reject(new TypeError("network"));
         if(entry.mode==="error" || failedSource){
           return response("indisponible",entry.status||503,"text/plain");
         }
@@ -366,9 +375,12 @@ function initScript(config){
             },{once:true});
           });
         }
-        if(!entry.delay) return response(csv(),200,"text/csv");
+        const csvBody=entry.empty
+          ?"latitude,longitude,acq_date,acq_time,confidence,frp"
+          :csv();
+        if(!entry.delay) return response(csvBody,200,"text/csv");
         return new Promise((resolve,reject)=>{
-          const timer=setTimeout(()=>resolve(new Response(csv(),{
+          const timer=setTimeout(()=>resolve(new Response(csvBody,{
             status:200,
             headers:{"Content-Type":"text/csv"}
           })),entry.delay);
@@ -506,6 +518,7 @@ async function openPage(baseUrl,port,config){
   });
   await cdp.send("Emulation.setDeviceMetricsOverride",config.viewport);
   await cdp.send("Page.addScriptToEvaluateOnNewDocument",{source:initScript(config)});
+  await cdp.send("Page.bringToFront");
   await cdp.send("Page.navigate",{url:baseUrl});
   await waitFor("document.readyState!=='loading' && Boolean(window.L)",cdp,30000);
   await evaluate("document.fonts.ready.then(()=>true)",cdp);
@@ -573,8 +586,8 @@ async function run(){
   const baseUrl=`http://127.0.0.1:${server.address().port}/`;
   for(const resource of [
     "",
-    "style.css?v=9",
-    "app.js?v=8",
+    "style.css?v=10",
+    "app.js?v=9",
     "assets/icons/icon.svg?v=3",
     "assets/icons/icon-180.png?v=3",
     "assets/icons/icon-192.png?v=3",
@@ -614,6 +627,22 @@ async function run(){
       "egx_incendies_settings",
       "egx_incendies_theme"
     ].every(key=>source.includes(`"${key}"`))
+  );
+  assert(
+    "onboarding NASA autonome déclaré",
+    html.includes('id="onboardingDialog"') &&
+      html.includes('aria-modal="true"') &&
+      html.includes('id="onboardingStatus"') &&
+      html.includes("Get MAP_KEY") &&
+      html.includes("Enregistrer et ouvrir la carte") &&
+      html.includes("jamais à un serveur EGX") &&
+      source.includes('const initialFocus=$("onboardingKeyLink")') &&
+      !html.includes("Créez un compte Earthdata")
+  );
+  assert(
+    "versions de cache CSS et JavaScript incrémentées",
+    html.includes('href="./style.css?v=10"') &&
+      html.includes('src="./app.js?v=9"')
   );
   assert("CSP statique présente",html.includes('http-equiv="Content-Security-Policy"'));
   assert(
@@ -1328,6 +1357,50 @@ async function run(){
       fs.writeFileSync(shot,Buffer.from(capture.data,"base64"));
       assert(`${test.name} capture`,fs.statSync(shot).size>10000,String(fs.statSync(shot).size));
       responsiveShots[test.slug]=shot;
+      await evaluate(`(()=>{
+        document.getElementById("closeDetail").click();
+        document.querySelector('[data-nav="settings"]').click();
+        document.getElementById("clearKey").click();
+      })()`,page.cdp);
+      await waitFor("document.getElementById('onboardingDialog').classList.contains('open')",page.cdp);
+      const onboardingGeometry=await evaluate(`(()=>{
+        const dialog=document.getElementById("onboardingDialog");
+        const rect=dialog.getBoundingClientRect();
+        dialog.scrollTop=dialog.scrollHeight;
+        const actions=document.querySelector(".onboarding-actions").getBoundingClientRect();
+        return {
+          left:rect.left,
+          right:rect.right,
+          top:rect.top,
+          bottom:rect.bottom,
+          horizontal:dialog.scrollWidth>dialog.clientWidth+1 ||
+            document.documentElement.scrollWidth>document.documentElement.clientWidth+1,
+          actionsVisible:actions.top>=rect.top-1 && actions.bottom<=rect.bottom+1,
+          dark:document.documentElement.dataset.theme==="dark"
+        };
+      })()`,page.cdp);
+      assert(
+        `${test.name} onboarding contenu dans la fenêtre`,
+        onboardingGeometry.left>=-1 &&
+          onboardingGeometry.right<=test.width+1 &&
+          onboardingGeometry.top>=-1 &&
+          onboardingGeometry.bottom<=test.height+1 &&
+          !onboardingGeometry.horizontal &&
+          onboardingGeometry.actionsVisible &&
+          onboardingGeometry.dark===(test.theme==="dark"),
+        JSON.stringify(onboardingGeometry)
+      );
+      if(["desktop-1024","mobile-small"].includes(test.slug)){
+        await evaluate("document.getElementById('onboardingDialog').scrollTop=0",page.cdp);
+        await new Promise(resolve=>setTimeout(resolve,250));
+        const onboardingShot=path.join(artifacts,`onboarding-${test.slug}.png`);
+        const onboardingCapture=await page.cdp.send("Page.captureScreenshot",{
+          format:"png",
+          captureBeyondViewport:false
+        });
+        fs.writeFileSync(onboardingShot,Buffer.from(onboardingCapture.data,"base64"));
+        responsiveShots[`onboarding-${test.slug}`]=onboardingShot;
+      }
       await closePage(page,port);
     }
 
@@ -1552,8 +1625,258 @@ async function run(){
     await closePage(page,port);
 
     page=await openPage(baseUrl,port,scenario({noKey:true}));
-    assert("état sans clé NASA",await waitFor("document.getElementById('keyStatus').textContent.includes('requise')",page.cdp));
-    assert("aucun appel FIRMS sans clé",await evaluate("window.__egxCounts.firms===0",page.cdp));
+    assert(
+      "onboarding automatique sans clé",
+      await waitFor(`document.getElementById("onboardingDialog").classList.contains("open") &&
+        document.getElementById("appShell").inert`,page.cdp)
+    );
+    assert(
+      "onboarding accessible sans clavier mobile automatique",
+      await evaluate(`(()=>{
+        const dialog=document.getElementById("onboardingDialog");
+        const input=document.getElementById("onboardingMapKey");
+        return dialog.getAttribute("role")==="dialog" &&
+          dialog.getAttribute("aria-modal")==="true" &&
+          dialog.getAttribute("aria-hidden")==="false" &&
+          input.type==="password" &&
+          document.activeElement!==input;
+      })()`,page.cdp)
+    );
+    assert(
+      "lien NASA officiel dans un nouvel onglet",
+      await evaluate(`(()=>{
+        const link=document.getElementById("onboardingKeyLink");
+        return link.href==="https://firms.modaps.eosdis.nasa.gov/api/map_key/" &&
+          link.target==="_blank" &&
+          link.rel.includes("noopener");
+      })()`,page.cdp)
+    );
+    assert("aucun appel FIRMS avant validation",await evaluate("window.__egxCounts.firms===0",page.cdp));
+    await evaluate(`document.getElementById("onboardingBackdrop").dispatchEvent(
+      new MouseEvent("click",{bubbles:true})
+    )`,page.cdp);
+    assert(
+      "clic extérieur sans fermeture",
+      await evaluate("document.getElementById('onboardingDialog').classList.contains('open')",page.cdp)
+    );
+    await evaluate(`document.getElementById("onboardingDialog").focus();
+      document.dispatchEvent(new KeyboardEvent("keydown",{key:"Tab",shiftKey:true,bubbles:true}))`,page.cdp);
+    assert(
+      "piège de focus onboarding",
+      await evaluate("document.activeElement===document.getElementById('onboardingLater')",page.cdp)
+    );
+    await evaluate("document.getElementById('onboardingLater').click()",page.cdp);
+    assert(
+      "Plus tard ferme et restitue l’application",
+      await waitFor(`!document.getElementById("onboardingDialog").classList.contains("open") &&
+        !document.getElementById("appShell").inert`,page.cdp)
+    );
+    await evaluate(`window.dispatchEvent(new Event("online"));
+      document.dispatchEvent(new Event("visibilitychange"))`,page.cdp);
+    await new Promise(resolve=>setTimeout(resolve,150));
+    assert(
+      "retour en ligne et visibilité restent silencieux sans clé",
+      await evaluate(`window.__egxCounts.firms===0 &&
+        !document.getElementById("onboardingDialog").classList.contains("open")`,page.cdp)
+    );
+    await evaluate("document.getElementById('refreshTop').click()",page.cdp);
+    assert(
+      "actualisation manuelle rouvre le guide",
+      await waitFor("document.getElementById('onboardingDialog').classList.contains('open')",page.cdp)
+    );
+    await evaluate("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))",page.cdp);
+    assert(
+      "Échap équivaut à Plus tard",
+      await waitFor("!document.getElementById('onboardingDialog').classList.contains('open')",page.cdp)
+    );
+    await evaluate("document.getElementById('refreshTop').click()",page.cdp);
+    await waitFor("document.getElementById('onboardingDialog').classList.contains('open')",page.cdp);
+    await evaluate("document.getElementById('onboardingSave').click()",page.cdp);
+    assert(
+      "clé vide refusée sans appel réseau",
+      await waitFor(`document.getElementById("onboardingStatus").textContent.includes("Collez") &&
+        window.__egxCounts.firms===0`,page.cdp)
+    );
+    await closePage(page,port);
+
+    page=await openPage(baseUrl,port,scenario({
+      noKey:true,
+      viewport:{width:1440,height:1000,deviceScaleFactor:1,mobile:false}
+    }));
+    await waitFor("document.getElementById('onboardingDialog').classList.contains('open')",page.cdp);
+    const onboardingDesktopGeometry=await evaluate(`(()=>{
+      const rect=document.getElementById("onboardingDialog").getBoundingClientRect();
+      return {
+        left:rect.left,
+        right:rect.right,
+        top:rect.top,
+        bottom:rect.bottom,
+        width:rect.width,
+        horizontal:document.documentElement.scrollWidth>document.documentElement.clientWidth+1
+      };
+    })()`,page.cdp);
+    assert(
+      "onboarding desktop 1440×1000 centré et contenu",
+      onboardingDesktopGeometry.width<=560.5 &&
+        Math.abs(onboardingDesktopGeometry.left-(1440-onboardingDesktopGeometry.width)/2)<=1 &&
+        onboardingDesktopGeometry.top>=-1 &&
+        onboardingDesktopGeometry.bottom<=1001 &&
+        !onboardingDesktopGeometry.horizontal,
+      JSON.stringify(onboardingDesktopGeometry)
+    );
+    await new Promise(resolve=>setTimeout(resolve,250));
+    const onboardingDesktop1440=path.join(artifacts,"onboarding-desktop-1440.png");
+    const onboardingDesktopCapture=await page.cdp.send("Page.captureScreenshot",{
+      format:"png",
+      captureBeyondViewport:false
+    });
+    fs.writeFileSync(onboardingDesktop1440,Buffer.from(onboardingDesktopCapture.data,"base64"));
+    responsiveShots["onboarding-desktop-1440"]=onboardingDesktop1440;
+    await closePage(page,port);
+
+    page=await openPage(baseUrl,port,scenario({noKey:true}));
+    await waitFor("document.getElementById('onboardingDialog').classList.contains('open')",page.cdp);
+    await evaluate(`document.getElementById("onboardingMapKey").value="TEST_CANDIDATE_SUCCESS";
+      document.getElementById("onboardingSave").click()`,page.cdp);
+    assert(
+      "validation complète persiste seulement après succès",
+      await waitFor(`localStorage.getItem("egx_incendies_firms_key")==="TEST_CANDIDATE_SUCCESS" &&
+        !document.getElementById("onboardingDialog").classList.contains("open") &&
+        document.querySelectorAll(".feed-item").length===1`,page.cdp)
+    );
+    assert(
+      "candidate envoyée directement à FIRMS et champs synchronisés",
+      await evaluate(`window.__egxCounts.firms===4 &&
+        window.__egxCounts.firmsKeys.every(key=>key==="TEST_CANDIDATE_SUCCESS") &&
+        document.getElementById("mapKey").value==="TEST_CANDIDATE_SUCCESS" &&
+        document.getElementById("onboardingMapKey").value==="TEST_CANDIDATE_SUCCESS"`,page.cdp)
+    );
+    await closePage(page,port);
+
+    page=await openPage(baseUrl,port,scenario({
+      noKey:true,
+      firms:{
+        mode:"success",
+        failSources:["VIIRS_NOAA20_NRT","VIIRS_NOAA21_NRT","MODIS_NRT"]
+      }
+    }));
+    await waitFor("document.getElementById('onboardingDialog').classList.contains('open')",page.cdp);
+    await evaluate(`document.getElementById("onboardingMapKey").value="TEST_PARTIAL";
+      document.getElementById("onboardingSave").click()`,page.cdp);
+    assert(
+      "une source FIRMS valide suffit",
+      await waitFor(`localStorage.getItem("egx_incendies_firms_key")==="TEST_PARTIAL" &&
+        !document.getElementById("onboardingDialog").classList.contains("open")`,page.cdp)
+    );
+    await closePage(page,port);
+
+    page=await openPage(baseUrl,port,scenario({
+      noKey:true,
+      firms:{mode:"success",empty:true}
+    }));
+    await waitFor("document.getElementById('onboardingDialog').classList.contains('open')",page.cdp);
+    await evaluate(`document.getElementById("onboardingMapKey").value="TEST_EMPTY";
+      document.getElementById("onboardingSave").click()`,page.cdp);
+    assert(
+      "réponse FIRMS valide sans détection accepte la clé",
+      await waitFor(`localStorage.getItem("egx_incendies_firms_key")==="TEST_EMPTY" &&
+        document.getElementById("feed").textContent.includes("Aucune détection")`,page.cdp)
+    );
+    await closePage(page,port);
+
+    for(const failure of [
+      {name:"clé ou CSV invalide",firms:{mode:"invalid"}},
+      {name:"erreur HTTP FIRMS",firms:{mode:"error",status:503}},
+      {name:"réseau FIRMS indisponible",firms:{mode:"network"}},
+      {name:"timeout FIRMS",firms:{mode:"timeout"},accelerateFirmsTimeout:true}
+    ]){
+      page=await openPage(baseUrl,port,scenario({
+        noKey:true,
+        firms:failure.firms,
+        accelerateFirmsTimeout:failure.accelerateFirmsTimeout
+      }));
+      await waitFor("document.getElementById('onboardingDialog').classList.contains('open')",page.cdp);
+      await evaluate(`document.getElementById("onboardingMapKey").value="TEST_REFUSED";
+        document.getElementById("onboardingSave").click()`,page.cdp);
+      assert(
+        `${failure.name} sans persistance`,
+        await waitFor(`document.getElementById("onboardingStatus").textContent===
+          "Impossible de vérifier la clé. Vérifiez la clé et votre connexion, puis réessayez." &&
+          localStorage.getItem("egx_incendies_firms_key")===null &&
+          document.getElementById("onboardingMapKey").value==="TEST_REFUSED" &&
+          document.getElementById("onboardingDialog").classList.contains("open")`,page.cdp)
+      );
+      await closePage(page,port);
+    }
+
+    page=await openPage(baseUrl,port,scenario({
+      noKey:true,
+      firms:{mode:"success",delay:1000}
+    }));
+    await waitFor("document.getElementById('onboardingDialog').classList.contains('open')",page.cdp);
+    await evaluate(`document.getElementById("onboardingMapKey").value="TEST_CANCEL_RETRY";
+      document.getElementById("onboardingSave").click()`,page.cdp);
+    await waitFor("window.__egxCounts.firms===4",page.cdp);
+    await evaluate("document.getElementById('onboardingLater').click()",page.cdp);
+    assert(
+      "Plus tard annule la validation sans stockage",
+      await waitFor(`window.__egxCounts.firmsAborts===4 &&
+        localStorage.getItem("egx_incendies_firms_key")===null &&
+        !document.getElementById("onboardingDialog").classList.contains("open")`,page.cdp)
+    );
+    await evaluate("document.getElementById('refreshTop').click()",page.cdp);
+    await waitFor("document.getElementById('onboardingDialog').classList.contains('open')",page.cdp);
+    await evaluate("document.getElementById('onboardingSave').click()",page.cdp);
+    assert(
+      "nouvelle tentative après annulation",
+      await waitFor(`localStorage.getItem("egx_incendies_firms_key")==="TEST_CANCEL_RETRY" &&
+        !document.getElementById("onboardingDialog").classList.contains("open")`,page.cdp,5000)
+    );
+    await closePage(page,port);
+
+    page=await openPage(baseUrl,port,scenario({
+      firms:{
+        mode:"success",
+        sequence:[{mode:"success"},{mode:"invalid"}]
+      }
+    }));
+    await waitFor("window.__egxCounts.firms===4 && document.querySelectorAll('.feed-item').length===1",page.cdp);
+    await evaluate(`document.querySelector('[data-nav="settings"]').click();
+      document.getElementById("mapKey").value="TEST_BAD_REPLACEMENT";
+      document.getElementById("saveKey").click()`,page.cdp);
+    assert(
+      "candidate refusée ne remplace jamais l’ancienne clé",
+      await waitFor(`document.getElementById("keyStatus").textContent.includes("Impossible de vérifier") &&
+        localStorage.getItem("egx_incendies_firms_key")==="TEST_KEY_NOT_REAL" &&
+        document.getElementById("mapKey").value==="TEST_BAD_REPLACEMENT"`,page.cdp)
+    );
+    await closePage(page,port);
+
+    page=await openPage(baseUrl,port,scenario({}));
+    await waitFor("window.__egxCounts.firms===4 && document.querySelectorAll('.feed-item').length===1",page.cdp);
+    assert(
+      "ancienne clé démarre sans onboarding",
+      await evaluate(`localStorage.getItem("egx_incendies_firms_key")==="TEST_KEY_NOT_REAL" &&
+        !document.getElementById("onboardingDialog").classList.contains("open")`,page.cdp)
+    );
+    await evaluate(`document.querySelector('[data-nav="settings"]').click();
+      document.getElementById("mapKey").value="TEST_CONFIG_SUCCESS";
+      document.getElementById("saveKey").click()`,page.cdp);
+    assert(
+      "saisie Configuration utilise le flux vérifié partagé",
+      await waitFor(`localStorage.getItem("egx_incendies_firms_key")==="TEST_CONFIG_SUCCESS" &&
+        document.getElementById("mapKey").value==="TEST_CONFIG_SUCCESS" &&
+        document.getElementById("onboardingMapKey").value==="TEST_CONFIG_SUCCESS"`,page.cdp)
+    );
+    await evaluate(`document.querySelector('[data-nav="settings"]').click();
+      document.getElementById("clearKey").click()`,page.cdp);
+    assert(
+      "effacement annule, synchronise et rouvre immédiatement le guide",
+      await waitFor(`localStorage.getItem("egx_incendies_firms_key")===null &&
+        document.getElementById("mapKey").value==="" &&
+        document.getElementById("onboardingMapKey").value==="" &&
+        document.getElementById("onboardingDialog").classList.contains("open")`,page.cdp)
+    );
     await closePage(page,port);
 
     assert("aucune exception JavaScript",consoleProblems.length===0,consoleProblems.join(" | "));

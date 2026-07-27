@@ -97,6 +97,9 @@
   let nextNominatimRequestAt = 0;
   let mainSmokeController = null;
   let mainSmokeRequestId = 0;
+  let keyValidationController = null;
+  let keyValidationRequestId = 0;
+  let onboardingPreviousFocus = null;
   const mainSmokeForecasts = new Map();
 
   function applyTheme(theme){
@@ -670,26 +673,26 @@
     return "En attente";
   }
 
-  async function refresh(){
+  async function refresh({mapKey=state.mapKey,manual=false,validation=false}={}){
     clearError();
     cancelMainSmokeRequests();
 
-    if(!state.mapKey){
+    if(!mapKey){
       state.dataStatus="idle";
       state.windLoading=false;
-      showError("Ajoutez votre clé gratuite NASA FIRMS dans les réglages pour charger les données.");
       $("keyStatus").textContent="Une clé MAP_KEY est requise pour charger les détections.";
-      openDrawer();
       updateUI();
-      return;
+      if(manual) openOnboarding();
+      return "missing-key";
     }
 
     const requestId=++refreshRequestId;
     state.abortController?.abort();
     const controller=new AbortController();
     state.abortController=controller;
+    if(validation) keyValidationController=controller;
     const request={
-      mapKey:state.mapKey,
+      mapKey,
       hours:+state.settings.hours,
       radius:+state.settings.radius,
       location:{...currentLocation()}
@@ -741,11 +744,12 @@
     });
     void windPromise;
 
+    let result="success";
     try{
       const fireSettled=await Promise.allSettled(
         SOURCES.map(src=>fetchSource(src,controller.signal,request))
       );
-      if(requestId!==refreshRequestId) return;
+      if(requestId!==refreshRequestId || controller.signal.aborted) return "aborted";
 
       const availableSources=fireSettled.filter(x=>x.status==="fulfilled");
       if(!availableSources.length){
@@ -773,7 +777,10 @@
         );
       }
     }catch(err){
-      if(requestId===refreshRequestId && err.name!=="AbortError"){
+      if(requestId!==refreshRequestId || err.name==="AbortError" || controller.signal.aborted){
+        result="aborted";
+      }else{
+        result="failure";
         controller.abort(new DOMException("Données FIRMS indisponibles","AbortError"));
         const preserved=Boolean(
           sameDataScope(state.dataScope,dataScopeFromRequest(request)) && state.lastFetch
@@ -791,12 +798,17 @@
           renderLayers();
         }
         updateUI();
-        showError(preserved
-          ?`Actualisation impossible : ${err.message}. Les dernières détections restent affichées avec leur heure de mise à jour.`
-          :`Impossible de charger les données : ${err.message}. Vérifiez la clé et la connexion.`
-        );
+        if(!validation){
+          showError(preserved
+            ?`Actualisation impossible : ${err.message}. Les dernières détections restent affichées avec leur heure de mise à jour.`
+            :`Impossible de charger les données : ${err.message}. Vérifiez la clé et la connexion.`
+          );
+        }
       }
     }finally{
+      if(validation && keyValidationController===controller){
+        keyValidationController=null;
+      }
       if(requestId===refreshRequestId){
         state.loading=false;
         if(windFinished && state.abortController===controller){
@@ -806,6 +818,7 @@
         updateUI();
       }
     }
+    return result;
   }
 
   function setLoading(on){
@@ -2534,6 +2547,118 @@
     setView("map");
   }
 
+  function focusableElements(container){
+    return [...container.querySelectorAll(
+      'button:not(:disabled),a[href],input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex]:not([tabindex="-1"])'
+    )].filter(element=>element.offsetParent!==null);
+  }
+
+  function openOnboarding(){
+    const dialog=$("onboardingDialog");
+    if(dialog.classList.contains("open")) return;
+    if($("detailView").classList.contains("open")) closeDetail();
+    onboardingPreviousFocus=document.activeElement instanceof HTMLElement
+      ?document.activeElement
+      :null;
+    $("appShell").inert=true;
+    $("onboardingBackdrop").classList.add("open");
+    $("onboardingBackdrop").setAttribute("aria-hidden","false");
+    dialog.classList.add("open");
+    dialog.inert=false;
+    dialog.setAttribute("aria-hidden","false");
+    document.body.classList.add("onboarding-open");
+    const initialFocus=$("onboardingKeyLink");
+    initialFocus.focus({preventScroll:true});
+    requestAnimationFrame(()=>{
+      if(dialog.classList.contains("open")) initialFocus.focus({preventScroll:true});
+    });
+  }
+
+  function cancelKeyValidation(){
+    keyValidationRequestId++;
+    keyValidationController?.abort(
+      new DOMException("Vérification de la clé annulée","AbortError")
+    );
+    keyValidationController=null;
+    setKeyValidationLoading(false);
+  }
+
+  function closeOnboarding({cancelValidation=true,restoreFocus=true}={}){
+    const dialog=$("onboardingDialog");
+    if(!dialog.classList.contains("open")) return;
+    if(cancelValidation) cancelKeyValidation();
+    dialog.classList.remove("open");
+    dialog.inert=true;
+    dialog.setAttribute("aria-hidden","true");
+    $("onboardingBackdrop").classList.remove("open");
+    $("onboardingBackdrop").setAttribute("aria-hidden","true");
+    $("appShell").inert=false;
+    document.body.classList.remove("onboarding-open");
+    const previousFocus=onboardingPreviousFocus;
+    onboardingPreviousFocus=null;
+    if(restoreFocus && previousFocus?.isConnected){
+      setTimeout(()=>previousFocus.focus({preventScroll:true}),0);
+    }
+  }
+
+  function setKeyValidationLoading(on){
+    $("saveKey").disabled=on;
+    $("onboardingSave").disabled=on;
+    $("saveKey").textContent=on?"Vérification…":"Enregistrer";
+    $("onboardingSave").textContent=on
+      ?"Vérification…"
+      :"Enregistrer et ouvrir la carte";
+    $("onboardingDialog").setAttribute("aria-busy",String(on));
+  }
+
+  function syncKeyFields(value){
+    $("mapKey").value=value;
+    $("onboardingMapKey").value=value;
+  }
+
+  async function validateAndSaveKey(input,status){
+    const candidate=input.value.trim();
+    if(!candidate){
+      status.textContent="Collez une clé NASA FIRMS valide.";
+      showToast("Clé NASA FIRMS manquante.");
+      return;
+    }
+
+    const validationId=++keyValidationRequestId;
+    status.textContent="Vérification…";
+    setKeyValidationLoading(true);
+    const result=await refresh({mapKey:candidate,validation:true});
+    if(validationId!==keyValidationRequestId || result==="aborted") return;
+
+    setKeyValidationLoading(false);
+    if(result!=="success"){
+      const message="Impossible de vérifier la clé. Vérifiez la clé et votre connexion, puis réessayez.";
+      status.textContent=message;
+      if($("onboardingDialog").classList.contains("open")){
+        $("onboardingStatus").textContent=message;
+      }
+      return;
+    }
+
+    state.mapKey=candidate;
+    localStorage.setItem(STORAGE_KEY,candidate);
+    syncKeyFields(candidate);
+    $("keyStatus").textContent="Clé vérifiée et enregistrée uniquement sur cet appareil.";
+    $("onboardingStatus").textContent="Clé vérifiée.";
+    closeOnboarding({cancelValidation:false,restoreFocus:false});
+    setView("map");
+    showToast("Clé vérifiée. Carte chargée.");
+  }
+
+  function togglePassword(input,toggle){
+    const visible=input.type==="text";
+    input.type=visible?"password":"text";
+    toggle.querySelector(".material-symbols-outlined").textContent=visible
+      ?"visibility"
+      :"visibility_off";
+    toggle.setAttribute("aria-label",visible?"Afficher la clé":"Masquer la clé");
+  }
+
   $("radius").value=String(state.settings.radius);
   $("radiusValue").textContent=`${state.settings.radius} km`;
   $("hours").value=String(state.settings.hours);
@@ -2582,25 +2707,14 @@
   });
   $("applyCity").addEventListener("click",applySelectedCity);
 
-  $("saveKey").addEventListener("click",()=>{
-    const value=$("mapKey").value.trim();
-    if(!value){
-      $("keyStatus").textContent="Collez une clé NASA FIRMS valide.";
-      showToast("Clé NASA FIRMS manquante.");
-      return;
-    }
-    state.mapKey=value;
-    $("keyStatus").textContent="Clé enregistrée uniquement sur cet appareil.";
-    localStorage.setItem(STORAGE_KEY,value);
-    closeDrawer();
-    refresh();
-  });
+  $("saveKey").addEventListener("click",()=>validateAndSaveKey($("mapKey"),$("keyStatus")));
 
   $("mapKey").addEventListener("keydown",e=>{
     if(e.key==="Enter") $("saveKey").click();
   });
 
   $("clearKey").addEventListener("click",()=>{
+    cancelKeyValidation();
     refreshRequestId++;
     state.abortController?.abort();
     state.abortController=null;
@@ -2615,14 +2729,15 @@
     state.lastFetch=null;
     state.dataScope=null;
     state.dataStatus="idle";
-    $("mapKey").value="";
+    syncKeyFields("");
     localStorage.removeItem(STORAGE_KEY);
     $("keyStatus").textContent="Clé supprimée.";
+    $("onboardingStatus").textContent="";
     setLoading(false);
     renderLayers();
     updateUI();
-    showError("Clé effacée de cet appareil.");
     showToast("Clé supprimée de cet appareil.");
+    openOnboarding();
   });
 
   $("radius").addEventListener("input",()=>{
@@ -2662,9 +2777,9 @@
     renderMainSmokeLayers();
   });
 
-  $("refreshTop").addEventListener("click",refresh);
+  $("refreshTop").addEventListener("click",()=>refresh({manual:true}));
   $("refreshBtn").addEventListener("click",async()=>{
-    await refresh();
+    await refresh({manual:true});
     if(state.mapKey) setView("map");
   });
   $("fitDrawerBtn").addEventListener("click",()=>{fitPoints();closeDrawer()});
@@ -2677,13 +2792,19 @@
     updateUI();
   });
 
-  $("toggleKey").addEventListener("click",()=>{
-    const input=$("mapKey");
-    const visible=input.type==="text";
-    input.type=visible?"password":"text";
-    $("toggleKey").querySelector(".material-symbols-outlined").textContent=visible?"visibility":"visibility_off";
-    $("toggleKey").setAttribute("aria-label",visible?"Afficher la clé":"Masquer la clé");
+  $("toggleKey").addEventListener("click",()=>togglePassword($("mapKey"),$("toggleKey")));
+  $("toggleOnboardingKey").addEventListener("click",()=>togglePassword(
+    $("onboardingMapKey"),
+    $("toggleOnboardingKey")
+  ));
+  $("onboardingSave").addEventListener("click",()=>validateAndSaveKey(
+    $("onboardingMapKey"),
+    $("onboardingStatus")
+  ));
+  $("onboardingMapKey").addEventListener("keydown",event=>{
+    if(event.key==="Enter") $("onboardingSave").click();
   });
+  $("onboardingLater").addEventListener("click",()=>closeOnboarding());
 
   $("closeDetail").addEventListener("click",closeDetail);
   $("shareAlert").addEventListener("click",async()=>{
@@ -2703,14 +2824,38 @@
   });
 
   document.addEventListener("keydown",event=>{
+    const onboardingOpen=$("onboardingDialog").classList.contains("open");
+    if(event.key==="Escape" && onboardingOpen){
+      event.preventDefault();
+      closeOnboarding();
+      return;
+    }
+    if(event.key==="Tab" && onboardingOpen){
+      const dialog=$("onboardingDialog");
+      const focusable=focusableElements(dialog);
+      if(!focusable.length){
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first=focusable[0];
+      const last=focusable.at(-1);
+      if(event.shiftKey && (document.activeElement===first || document.activeElement===dialog)){
+        event.preventDefault();
+        last.focus();
+      }else if(!event.shiftKey && document.activeElement===last){
+        event.preventDefault();
+        first.focus();
+      }
+      return;
+    }
     const detailOpen=$("detailView").classList.contains("open");
     if(event.key==="Escape" && detailOpen){
       closeDetail();
       return;
     }
     if(event.key!=="Tab" || !detailOpen) return;
-    const focusable=[...$("detailView").querySelectorAll('button:not(:disabled),a[href],input:not(:disabled),select:not(:disabled),[tabindex]:not([tabindex="-1"])')]
-      .filter(element=>element.offsetParent!==null);
+    const focusable=focusableElements($("detailView"));
     if(!focusable.length) return;
     const first=focusable[0];
     const last=focusable.at(-1);
@@ -2741,10 +2886,8 @@
   updateUI();
   if(state.mapKey) refresh();
   else{
-    showError("Ajoutez votre clé gratuite NASA FIRMS dans les réglages pour charger les données.");
     $("keyStatus").textContent="Une clé MAP_KEY est requise pour charger les détections.";
-    if(window.innerWidth<900) openDrawer();
-    else setPanelPage("settings");
+    openOnboarding();
   }
 
   setInterval(()=>{

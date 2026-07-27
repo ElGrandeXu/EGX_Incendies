@@ -1266,6 +1266,156 @@ select { padding: 9px 36px 9px 12px; }
   opacity: 1;
 }
 
+.onboarding-backdrop {
+  position: fixed;
+  z-index: 3000;
+  inset: 0;
+  display: grid;
+  visibility: hidden;
+  place-items: center;
+  padding:
+    max(16px, var(--safe-top))
+    max(16px, env(safe-area-inset-right, 0px))
+    max(16px, var(--safe-bottom))
+    max(16px, env(safe-area-inset-left, 0px));
+  background: rgba(0,0,0,.5);
+  opacity: 0;
+  transition: opacity .18s ease, visibility .18s;
+}
+
+.onboarding-backdrop.open {
+  visibility: visible;
+  opacity: 1;
+}
+
+.onboarding-dialog {
+  width: min(560px, 100%);
+  max-height: calc(100dvh - max(32px, var(--safe-top) + var(--safe-bottom)));
+  padding: clamp(18px, 4vw, 28px);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: 0 22px 70px rgba(0,0,0,.32);
+  color: var(--text);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--outline) transparent;
+  scrollbar-width: thin;
+}
+
+.onboarding-dialog:focus {
+  outline: 3px solid color-mix(in srgb, var(--primary) 55%, transparent);
+  outline-offset: 3px;
+}
+
+.onboarding-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.onboarding-heading .eyebrow { margin-bottom: 2px; }
+
+.onboarding-heading h2 {
+  margin: 0;
+  font-size: clamp(21px, 5vw, 28px);
+  line-height: 1.2;
+}
+
+.onboarding-icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: 28px;
+  font-variation-settings: "FILL" 1;
+}
+
+.onboarding-dialog > p {
+  margin: 0;
+  color: var(--text-soft);
+  line-height: 1.55;
+}
+
+.onboarding-steps {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.onboarding-steps li {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+}
+
+.onboarding-steps li > span {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--surface-high);
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.onboarding-steps p {
+  margin: 4px 0 0;
+  line-height: 1.45;
+}
+
+.onboarding-link {
+  width: 100%;
+  margin-bottom: 18px;
+  text-decoration: none;
+}
+
+.onboarding-dialog > label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.onboarding-status { min-height: 20px; }
+
+.onboarding-dialog > .onboarding-privacy {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 9px;
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  background: var(--surface-high);
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.onboarding-privacy .material-symbols-outlined {
+  color: var(--primary);
+  font-size: 21px;
+}
+
+.onboarding-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(112px, .7fr);
+  gap: 10px;
+  margin-top: 18px;
+}
+
+body.onboarding-open { overflow: hidden; }
+
 .detail-view {
   position: fixed;
   z-index: 1400;
@@ -1651,6 +1801,20 @@ select:focus {
   .brand { font-size: 17px; }
   .summary-stat { gap: 7px; padding: 8px; }
   .stat-icon { width: 34px; height: 34px; }
+
+  .onboarding-backdrop {
+    place-items: end center;
+    padding-right: max(8px, env(safe-area-inset-right, 0px));
+    padding-bottom: max(8px, var(--safe-bottom));
+    padding-left: max(8px, env(safe-area-inset-left, 0px));
+  }
+
+  .onboarding-dialog {
+    max-height: calc(100dvh - max(16px, var(--safe-top) + var(--safe-bottom)));
+    border-radius: 18px;
+  }
+
+  .onboarding-actions { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 899px) {

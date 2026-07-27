@@ -6,14 +6,15 @@ EGX Incendies montre les détections thermiques par satellite autour de la ville
 
 ## Utiliser l’application en quelques minutes
 
-1. Demandez gratuitement votre [clé NASA FIRMS sur la page officielle](https://firms.modaps.eosdis.nasa.gov/api/map_key/). Entrez votre adresse e-mail. La NASA vous envoie la clé par e-mail.
-2. Ouvrez [EGX Incendies](https://elgrandexu.github.io/EGX_Incendies/).
-3. Ouvrez l’onglet **Configuration**.
-4. Dans **Clé NASA FIRMS**, collez la clé, puis touchez **Enregistrer**.
-5. Rouvrez **Configuration** si l’application affiche **Carte**. Dans **Zone cible**, saisissez votre ville, touchez **Rechercher**, choisissez le bon résultat, puis touchez **Utiliser cette ville**. La carte s’ouvre et s’actualise automatiquement.
-6. Si besoin, revenez dans **Configuration** pour choisir le **Rayon de détection**, l’**Historique des données** — 24, 48 ou 72 heures — et le mode d’affichage. Chaque changement est appliqué directement.
+1. Ouvrez [EGX Incendies](https://elgrandexu.github.io/EGX_Incendies/). Le guide de bienvenue apparaît automatiquement si aucune clé n’est enregistrée.
+2. Touchez **Obtenir ma clé gratuite**. Sur la page officielle NASA FIRMS, cliquez sur **Get MAP_KEY**, saisissez votre adresse e-mail, puis récupérez la clé reçue par e-mail.
+3. Revenez dans l’onglet EGX Incendies, collez la clé dans le guide, puis touchez **Enregistrer et ouvrir la carte**. L’application vérifie la clé avant de la conserver.
+4. Dans **Configuration**, saisissez votre ville sous **Zone cible**, touchez **Rechercher**, choisissez le bon résultat, puis touchez **Utiliser cette ville**.
+5. Si besoin, choisissez le **Rayon de détection**, l’**Historique des données** — 24, 48 ou 72 heures — et le mode d’affichage. Chaque changement est appliqué directement.
 
-La clé reste dans le navigateur de cet appareil. Elle sert à interroger NASA FIRMS et n’est pas envoyée à un serveur EGX.
+Le guide peut être fermé avec **Plus tard** ou la touche **Échap**. Il revient au prochain chargement ou lors d’une actualisation manuelle tant qu’aucune clé n’est enregistrée.
+
+La clé reste dans le navigateur de cet appareil. Elle est envoyée directement à NASA FIRMS et jamais à un serveur EGX.
 
 **Raccourci mobile :** sur iPhone ou iPad, ouvrez le site dans Safari, puis touchez **Partager** → **Sur l’écran d’accueil**. Sur Android, ouvrez-le dans Chrome, puis choisissez **Ajouter à l’écran d’accueil** dans le menu. Une connexion à Internet reste nécessaire.
 
