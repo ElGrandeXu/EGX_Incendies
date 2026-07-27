@@ -251,11 +251,6 @@ select:disabled {
   background: #dce7e6;
 }
 
-html[data-theme="dark"] #map .leaflet-tile-pane,
-html[data-theme="dark"] #detailMap .leaflet-tile-pane {
-  filter: invert(.88) hue-rotate(175deg) brightness(.72) contrast(.9);
-}
-
 .leaflet-container {
   background: #dce7e6;
   font: inherit;
@@ -357,7 +352,7 @@ html[data-theme="dark"] .main-smoke-direction-arrow {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  min-height: 42px;
+  height: var(--control-height);
   max-width: calc(100% - 82px);
   padding: 8px 11px;
   border: 1px solid var(--outline);

@@ -40,6 +40,13 @@ function assert(name, condition, detail = ""){
   if(!condition) throw new Error(`${name}${detail ? `: ${detail}` : ""}`);
 }
 
+function pngDimensions(file){
+  const buffer=fs.readFileSync(file);
+  const signature="89504e470d0a1a0a";
+  if(buffer.subarray(0,8).toString("hex")!==signature) return null;
+  return {width:buffer.readUInt32BE(16),height:buffer.readUInt32BE(20)};
+}
+
 async function loadBrowserAssets(){
   const assets={};
   for(const [url,metadata] of Object.entries(LEAFLET_ASSETS)){
@@ -144,7 +151,14 @@ function staticServer(){
     if(!target.startsWith(APP) || !fs.existsSync(target) || !fs.statSync(target).isFile()){
       res.writeHead(404);res.end("Not found");return;
     }
-    const types={".html":"text/html; charset=utf-8",".css":"text/css; charset=utf-8",".js":"application/javascript; charset=utf-8"};
+    const types={
+      ".html":"text/html; charset=utf-8",
+      ".css":"text/css; charset=utf-8",
+      ".js":"application/javascript; charset=utf-8",
+      ".svg":"image/svg+xml",
+      ".png":"image/png",
+      ".webmanifest":"application/manifest+json"
+    };
     res.writeHead(200,{"Content-Type":types[path.extname(target)]||"application/octet-stream","Cache-Control":"no-store"});
     fs.createReadStream(target).pipe(res);
   });
@@ -557,12 +571,24 @@ async function run(){
   const server=staticServer();
   await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
   const baseUrl=`http://127.0.0.1:${server.address().port}/`;
-  for(const resource of ["","style.css?v=8","app.js?v=8"]){
+  for(const resource of [
+    "",
+    "style.css?v=9",
+    "app.js?v=8",
+    "icon.svg",
+    "icon-180.png",
+    "icon-192.png",
+    "icon-512.png",
+    "icon-maskable-512.png",
+    "manifest.webmanifest"
+  ]){
     const response=await fetch(`${baseUrl}${resource}`);
     assert(`HTTP 200 ${resource||"/"}`,response.status===200,String(response.status));
   }
   const html=fs.readFileSync(path.join(APP,"index.html"),"utf8");
   const source=fs.readFileSync(path.join(APP,"app.js"),"utf8");
+  const iconSource=fs.readFileSync(path.join(APP,"icon.svg"),"utf8");
+  const manifest=JSON.parse(fs.readFileSync(path.join(APP,"manifest.webmanifest"),"utf8"));
   const ids=[...html.matchAll(/\sid="([^"]+)"/g)].map(match=>match[1]);
   const uniqueIds=new Set(ids);
   const bindings=[...source.matchAll(/\$\("([^"]+)"\)/g)].map(match=>match[1]);
@@ -608,7 +634,51 @@ async function run(){
     "contrôle natif des trajectoires présent sur la carte",
     html.includes('id="smokeToggle"') &&
       html.includes('type="checkbox"') &&
-      html.includes("Trajectoires de fumée")
+      html.includes(">Fumées</span>") &&
+      html.includes('aria-label="Afficher ou masquer les trajectoires de fumée"') &&
+      html.includes('title="Afficher ou masquer les trajectoires de fumée"')
+  );
+  assert(
+    "icônes mobiles déclarées",
+    html.includes('rel="apple-touch-icon"') &&
+      html.includes('href="./icon-180.png"') &&
+      html.includes('rel="icon" type="image/svg+xml" href="./icon.svg"') &&
+      html.includes('rel="manifest" href="./manifest.webmanifest"')
+  );
+  assert(
+    "dimensions PNG conformes",
+    [
+      ["icon-180.png",180],
+      ["icon-192.png",192],
+      ["icon-512.png",512],
+      ["icon-maskable-512.png",512]
+    ].every(([file,size])=>{
+      const dimensions=pngDimensions(path.join(APP,file));
+      return dimensions?.width===size && dimensions.height===size;
+    })
+  );
+  assert(
+    "manifeste navigateur sans hors-ligne",
+    manifest.name==="EGX Incendies" &&
+      manifest.short_name==="EGX" &&
+      manifest.start_url==="./" &&
+      manifest.scope==="./" &&
+      manifest.display==="browser" &&
+      !source.includes("serviceWorker") &&
+      !fs.existsSync(path.join(APP,"service-worker.js"))
+  );
+  assert(
+    "icônes any et maskable déclarées",
+    manifest.icons.some(icon=>icon.src==="./icon-192.png" && icon.sizes==="192x192" && icon.purpose==="any") &&
+      manifest.icons.some(icon=>icon.src==="./icon-512.png" && icon.sizes==="512x512" && icon.purpose==="any") &&
+      manifest.icons.some(icon=>icon.src==="./icon-maskable-512.png" && icon.sizes==="512x512" && icon.purpose==="maskable")
+  );
+  assert(
+    "contenu du master limité à la zone maskable",
+    iconSource.includes('clipPath id="maskable-safe-zone"') &&
+      iconSource.includes('<circle cx="512" cy="512" r="409"') &&
+      iconSource.includes('clip-path="url(#maskable-safe-zone)"') &&
+      iconSource.includes(">EGX</text>")
   );
   const profile=fs.mkdtempSync(path.join(os.tmpdir(),"egx-chrome-m2-"));
   const chrome=spawn(CHROME,[
@@ -667,6 +737,16 @@ async function run(){
           style.backgroundColor!=="rgba(0, 0, 0, 0)";
       })()`,page.cdp)
     );
+    assert(
+      "attribution OSM carte principale visible",
+      await evaluate(`(()=>{
+        const attribution=document.querySelector("#map .leaflet-control-attribution");
+        const style=attribution&&getComputedStyle(attribution);
+        return attribution?.textContent.includes("OpenStreetMap") &&
+          style.display!=="none" &&
+          style.visibility!=="hidden";
+      })()`,page.cdp)
+    );
     await openFirstDetail(page.cdp);
     assert(
       "clé NASA existante conservée",
@@ -712,7 +792,23 @@ async function run(){
     assert("données FIRMS restent actives",state.feedItems===1,String(state.feedItems));
     assert("liste technique du détail supprimée",state.technicalElements===0,String(state.technicalElements));
     assert("corridor stable",state.smoke.includes("assez stable"),state.smoke);
-    assert("attribution OSM visible",await evaluate("document.querySelector('.localities-source').innerText.includes('OpenStreetMap')",page.cdp));
+    const osmAttribution=await evaluate(`(()=>{
+        const source=document.querySelector(".localities-source");
+        const link=source?.querySelector("a[href*='openstreetmap.org/copyright']");
+        const detailAttribution=document.querySelector("#detailMap .leaflet-control-attribution");
+        return {
+          sourceText:source?.textContent||"",
+          link:Boolean(link),
+          detailText:detailAttribution?.textContent||""
+        };
+      })()`,page.cdp);
+    assert(
+      "attribution OSM visible",
+      osmAttribution.sourceText.includes("OpenStreetMap") &&
+        osmAttribution.link &&
+        osmAttribution.detailText.includes("OpenStreetMap"),
+      JSON.stringify(osmAttribution)
+    );
 
     const mobileShot=path.join(artifacts,"mobile-light.png");
     await new Promise(resolve=>setTimeout(resolve,250));
@@ -774,8 +870,11 @@ async function run(){
         return input.type==="checkbox" &&
           input.checked &&
           document.activeElement===input &&
-          control.textContent.includes("Trajectoires de fumée") &&
-          rect.width>150 &&
+          control.textContent.includes("Fumées") &&
+          input.getAttribute("aria-label")==="Afficher ou masquer les trajectoires de fumée" &&
+          control.title==="Afficher ou masquer les trajectoires de fumée" &&
+          Math.abs(rect.height-document.getElementById("homeBtn").getBoundingClientRect().height)<=1 &&
+          rect.width>100 &&
           rect.right<=innerWidth-60 &&
           rect.bottom<=document.querySelector(".map-summary").getBoundingClientRect().top;
       })()`,page.cdp)
@@ -1128,11 +1227,43 @@ async function run(){
         JSON.stringify(mapGeometry)
       );
       assert(`${test.name} ancienneté textuelle`,mapGeometry.nearestAge.trim().length>1,mapGeometry.nearestAge);
-      if(test.slug==="mobile-small"){
-        smallMapShot=path.join(artifacts,"map-mobile-small.png");
-        const mapCapture=await page.cdp.send("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
-        fs.writeFileSync(smallMapShot,Buffer.from(mapCapture.data,"base64"));
-      }
+      const controlGeometry=await evaluate(`(()=>{
+        const smoke=document.querySelector(".smoke-layer-control").getBoundingClientRect();
+        const home=document.getElementById("homeBtn").getBoundingClientRect();
+        const overlap=!(smoke.right<=home.left || smoke.left>=home.right || smoke.bottom<=home.top || smoke.top>=home.bottom);
+        return {
+          label:document.querySelector(".smoke-layer-control > span:last-child").textContent.trim(),
+          ariaLabel:document.getElementById("smokeToggle").getAttribute("aria-label"),
+          smokeHeight:smoke.height,
+          homeHeight:home.height,
+          smokeLeft:smoke.left,
+          smokeRight:smoke.right,
+          smokeTop:smoke.top,
+          smokeBottom:smoke.bottom,
+          overlap,
+          mainTileFilter:getComputedStyle(document.querySelector("#map .leaflet-tile-pane")).filter
+        };
+      })()`,page.cdp);
+      assert(
+        `${test.name} contrôle Fumées aligné`,
+        controlGeometry.label==="Fumées" &&
+          controlGeometry.ariaLabel==="Afficher ou masquer les trajectoires de fumée" &&
+          Math.abs(controlGeometry.smokeHeight-controlGeometry.homeHeight)<=1 &&
+          Math.abs(controlGeometry.smokeHeight-48)<=1 &&
+          controlGeometry.smokeLeft>=-1 &&
+          controlGeometry.smokeRight<=test.width+1 &&
+          controlGeometry.smokeTop>=-1 &&
+          controlGeometry.smokeBottom<=test.height+1 &&
+          !controlGeometry.overlap,
+        JSON.stringify(controlGeometry)
+      );
+      assert(`${test.name} tuiles carte principale sans filtre`,controlGeometry.mainTileFilter==="none",JSON.stringify(controlGeometry));
+      const mapShot=path.join(artifacts,`map-${test.slug}.png`);
+      const mapCapture=await page.cdp.send("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
+      fs.writeFileSync(mapShot,Buffer.from(mapCapture.data,"base64"));
+      assert(`${test.name} capture carte`,fs.statSync(mapShot).size>10000,String(fs.statSync(mapShot).size));
+      responsiveShots[`map-${test.slug}`]=mapShot;
+      if(test.slug==="mobile-small") smallMapShot=mapShot;
       await openFirstDetail(page.cdp);
       await localityState(page.cdp);
       const geometry=await evaluate(`(()=>{
@@ -1160,6 +1291,7 @@ async function run(){
           actionsVisible:actionRect.top>=closeRect.bottom-1 && actionRect.bottom<=innerHeight+1,
           closeVisible:closeRect.top>=-1 && closeRect.bottom<=innerHeight+1,
           mapHeight:document.getElementById("detailMap").getBoundingClientRect().height,
+          detailTileFilter:getComputedStyle(document.querySelector("#detailMap .leaflet-tile-pane")).filter,
           feedText:document.querySelector(".feed-item")?.innerText||""
         };
       })()`,page.cdp);
@@ -1170,6 +1302,7 @@ async function run(){
       assert(`${test.name} actions finales accessibles`,geometry.actionsVisible,JSON.stringify(geometry));
       assert(`${test.name} fermeture accessible`,geometry.closeVisible,JSON.stringify(geometry));
       assert(`${test.name} carte lisible`,geometry.mapHeight>=209.5,JSON.stringify(geometry));
+      assert(`${test.name} tuiles carte de détail sans filtre`,geometry.detailTileFilter==="none",JSON.stringify(geometry));
       assert(`${test.name} données nombreuses conservées`,geometry.feedText.includes(`${test.detections} détections`),geometry.feedText);
       if(test.desktop){
         assert(`${test.name} modale centrée`,Math.abs(geometry.left-(test.width-geometry.width)/2)<=1,JSON.stringify(geometry));

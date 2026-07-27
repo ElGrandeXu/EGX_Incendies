@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="icon-title icon-description">
+  <title id="icon-title">EGX Incendies</title>
+  <desc id="icon-description">Flamme blanche et lettres EGX sur fond rouge</desc>
+  <defs>
+    <clipPath id="maskable-safe-zone">
+      <circle cx="512" cy="512" r="409"/>
+    </clipPath>
+  </defs>
+  <rect width="1024" height="1024" fill="#c81e1e"/>
+  <g clip-path="url(#maskable-safe-zone)" fill="#fff">
+    <path d="M532 124c35 123-63 171-18 277 42-31 74-79 84-133 106 87 154 195 129 292-25 103-111 168-220 168-126 0-226-78-226-196 0-106 71-190 177-303-3 87 10 139 57 176-38-118 33-183 17-281Zm-23 516c-67 0-116-44-116-108 0-45 29-85 74-132-3 52 16 84 49 102-4-45 24-84 65-112 39 45 57 92 45 137-14 68-60 113-117 113Z" fill-rule="evenodd"/>
+    <text x="512" y="864" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="178" font-weight="800" letter-spacing="12">EGX</text>
+  </g>
+</svg>

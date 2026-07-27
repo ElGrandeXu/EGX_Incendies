@@ -1,0 +1,31 @@
+{
+  "name": "EGX Incendies",
+  "short_name": "EGX",
+  "description": "Carte citoyenne des détections thermiques satellites autour de la ville de votre choix.",
+  "lang": "fr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "browser",
+  "background_color": "#f8f9fb",
+  "theme_color": "#c81e1e",
+  "icons": [
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
