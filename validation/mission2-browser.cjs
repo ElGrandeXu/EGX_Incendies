@@ -3,6 +3,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const vm = require("node:vm");
 const {spawn} = require("node:child_process");
 
 const ROOT = path.resolve(__dirname, "..");
@@ -679,6 +680,17 @@ async function run(){
       shareHtml.includes('window.location.replace("../")') &&
       shareHtml.includes('<a href="../">Ouvrir l’application</a>')
   );
+  const shareRedirectScript=shareHtml.match(/<script>([\s\S]*?)<\/script>/)?.[1]||"";
+  const redirectFor=userAgent=>{
+    let target=null;
+    vm.runInNewContext(shareRedirectScript,{
+      navigator:{userAgent},
+      window:{location:{replace:value=>{target=value;}}}
+    });
+    return target;
+  };
+  assert("visiteur de la page de partage redirigé vers l’application",redirectFor("Mozilla/5.0 Chrome/140")==="../");
+  assert("robot LinkedIn maintenu sur les métadonnées de partage",redirectFor("LinkedInBot/1.0")===null);
   assert("CSP statique présente",html.includes('http-equiv="Content-Security-Policy"'));
   assert(
     "intégrité Leaflet CSS et JavaScript",
