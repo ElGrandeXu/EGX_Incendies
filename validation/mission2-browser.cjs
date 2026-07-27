@@ -641,9 +641,9 @@ async function run(){
   assert(
     "icônes mobiles déclarées",
     html.includes('rel="apple-touch-icon"') &&
-      html.includes('href="./icon-180.png"') &&
-      html.includes('rel="icon" type="image/svg+xml" href="./icon.svg"') &&
-      html.includes('rel="manifest" href="./manifest.webmanifest"')
+      html.includes('href="./icon-180.png?v=2"') &&
+      html.includes('rel="icon" type="image/svg+xml" href="./icon.svg?v=2"') &&
+      html.includes('rel="manifest" href="./manifest.webmanifest?v=2"')
   );
   assert(
     "dimensions PNG conformes",
@@ -669,15 +669,17 @@ async function run(){
   );
   assert(
     "icônes any et maskable déclarées",
-    manifest.icons.some(icon=>icon.src==="./icon-192.png" && icon.sizes==="192x192" && icon.purpose==="any") &&
-      manifest.icons.some(icon=>icon.src==="./icon-512.png" && icon.sizes==="512x512" && icon.purpose==="any") &&
-      manifest.icons.some(icon=>icon.src==="./icon-maskable-512.png" && icon.sizes==="512x512" && icon.purpose==="maskable")
+    manifest.icons.some(icon=>icon.src==="./icon-192.png?v=2" && icon.sizes==="192x192" && icon.purpose==="any") &&
+      manifest.icons.some(icon=>icon.src==="./icon-512.png?v=2" && icon.sizes==="512x512" && icon.purpose==="any") &&
+      manifest.icons.some(icon=>icon.src==="./icon-maskable-512.png?v=2" && icon.sizes==="512x512" && icon.purpose==="maskable")
   );
   assert(
     "contenu du master limité à la zone maskable",
     iconSource.includes('clipPath id="maskable-safe-zone"') &&
       iconSource.includes('<circle cx="512" cy="512" r="409"') &&
       iconSource.includes('clip-path="url(#maskable-safe-zone)"') &&
+      iconSource.includes('id="icon-foreground" data-scale="0.72"') &&
+      iconSource.includes('transform="translate(143.36 143.36) scale(.72)"') &&
       iconSource.includes(">EGX</text>")
   );
   const profile=fs.mkdtempSync(path.join(os.tmpdir(),"egx-chrome-m2-"));
