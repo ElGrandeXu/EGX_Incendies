@@ -588,6 +588,7 @@ async function run(){
     "",
     "style.css?v=10",
     "app.js?v=9",
+    "partage/index.html",
     "assets/social-preview-v1.png",
     "assets/icons/icon.svg?v=3",
     "assets/icons/icon-180.png?v=3",
@@ -609,6 +610,7 @@ async function run(){
     legacyAssetStatuses.join("|")
   );
   const html=fs.readFileSync(path.join(APP,"index.html"),"utf8");
+  const shareHtml=fs.readFileSync(path.join(APP,"partage","index.html"),"utf8");
   const source=fs.readFileSync(path.join(APP,"app.js"),"utf8");
   const iconSource=fs.readFileSync(path.join(APP,"assets","icons","icon.svg"),"utf8");
   const manifest=JSON.parse(fs.readFileSync(path.join(APP,"assets","manifest.webmanifest"),"utf8"));
@@ -662,6 +664,20 @@ async function run(){
     "aperçu social au format 1200×627",
     socialPreviewDimensions?.width===1200 && socialPreviewDimensions.height===627,
     JSON.stringify(socialPreviewDimensions)
+  );
+  assert(
+    "page de partage indépendante du cache canonique",
+    shareHtml.includes('<link rel="canonical" href="https://elgrandexu.github.io/EGX_Incendies/partage/">') &&
+      shareHtml.includes('<meta property="og:url" content="https://elgrandexu.github.io/EGX_Incendies/partage/">') &&
+      shareHtml.includes('<meta property="og:title" content="EGX Incendies — Carte mondiale des foyers">') &&
+      shareHtml.includes('<meta property="og:image" content="https://elgrandexu.github.io/EGX_Incendies/assets/social-preview-v1.png">') &&
+      !shareHtml.includes("Configuration de la surveillance")
+  );
+  assert(
+    "page de partage redirigée uniquement pour les visiteurs",
+    shareHtml.includes("crawler.test(navigator.userAgent)") &&
+      shareHtml.includes('window.location.replace("../")') &&
+      shareHtml.includes('<a href="../">Ouvrir l’application</a>')
   );
   assert("CSP statique présente",html.includes('http-equiv="Content-Security-Policy"'));
   assert(
