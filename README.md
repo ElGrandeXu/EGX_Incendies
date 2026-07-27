@@ -25,7 +25,7 @@ La clé reste dans le navigateur de cet appareil. Elle sert à interroger NASA F
 
 - les détections thermiques fournies par NASA FIRMS ;
 - les détections proches regroupées en foyers probables ;
-- la distance de la détection la plus proche ;
+- la distance et l’ancienneté de la détection la plus proche ;
 - le vent actuel ;
 - un niveau de risque pédagogique lié aux fumées ;
 - les trajectoires potentielles des fumées à `3 h`, `6 h` et `12 h` sur la carte ;
@@ -135,7 +135,15 @@ L’application fonctionne sans serveur EGX et sans étape de compilation. GitHu
 
 Pour l’ouvrir en local, servez la racine du dépôt avec un serveur HTTP. Par exemple, lancez `python -m http.server 8000`, puis ouvrez `http://localhost:8000/`.
 
-Le banc navigateur contrôlé est conservé dans `validation/mission2-browser.cjs`. Il nécessite Node.js et Google Chrome sous Windows.
+Le banc navigateur contrôlé est conservé dans `validation/mission2-browser.cjs`. Il nécessite Node.js 22 ou plus récent et Chrome ou Chromium. Lancez :
+
+```sh
+node validation/mission2-browser.cjs
+```
+
+Le navigateur est détecté dans les emplacements courants. Sinon, définissez la variable `CHROME_PATH`. Le banc vérifie l’intégrité de Leaflet, simule les réponses réussies, partielles et échouées des API, puis teste les parcours sur mobile, tablette et ordinateur.
+
+Le rapport factuel, les mesures avant/après, les limites et la procédure de rollback sont consignés dans [`docs/audit-2026-07-26.md`](docs/audit-2026-07-26.md).
 
 ## Licence
 

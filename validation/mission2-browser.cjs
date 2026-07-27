@@ -1,4 +1,5 @@
 const http = require("node:http");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -7,16 +8,73 @@ const {spawn} = require("node:child_process");
 const ROOT = path.resolve(__dirname, "..");
 const LOCAL_APP = path.join(ROOT, "app");
 const APP = fs.existsSync(path.join(LOCAL_APP, "index.html")) ? LOCAL_APP : ROOT;
-const CHROME = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+const CHROME = [
+  process.env.CHROME_PATH,
+  "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+  "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "/usr/bin/google-chrome",
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser"
+].filter(Boolean).find(candidate=>fs.existsSync(candidate));
 const ORIGIN = {lat:44.8378, lon:-0.5792};
 const artifacts = fs.mkdtempSync(path.join(os.tmpdir(), "egx-incendies-m2-"));
 const results = [];
 const consoleProblems = [];
 const measurements = {};
+const LEAFLET_ASSETS = {
+  "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css":{
+    type:"text/css; charset=utf-8",
+    sha256:"p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+  },
+  "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js":{
+    type:"application/javascript; charset=utf-8",
+    sha256:"20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+  }
+};
+const GOOGLE_FONTS_URL = "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0";
+let browserAssets=null;
 
 function assert(name, condition, detail = ""){
   results.push({name, ok:Boolean(condition), detail});
   if(!condition) throw new Error(`${name}${detail ? `: ${detail}` : ""}`);
+}
+
+async function loadBrowserAssets(){
+  const assets={};
+  for(const [url,metadata] of Object.entries(LEAFLET_ASSETS)){
+    const response=await fetch(url,{signal:AbortSignal.timeout(30000)});
+    if(!response.ok) throw new Error(`Dépendance de test indisponible (${response.status}) : ${url}`);
+    const body=Buffer.from(await response.arrayBuffer());
+    const digest=crypto.createHash("sha256").update(body).digest("base64");
+    if(digest!==metadata.sha256) throw new Error(`Intégrité Leaflet invalide : ${url}`);
+    assets[url]={...metadata,body};
+  }
+  const fontStyles=await fetch(GOOGLE_FONTS_URL,{
+    headers:{"User-Agent":"Mozilla/5.0 Chrome/126.0.0.0 Safari/537.36"},
+    signal:AbortSignal.timeout(30000)
+  });
+  if(!fontStyles.ok) throw new Error(`Feuille Google Fonts indisponible (${fontStyles.status})`);
+  const fontCss=Buffer.from(await fontStyles.arrayBuffer());
+  assets[GOOGLE_FONTS_URL]={
+    type:"text/css; charset=utf-8",
+    body:fontCss
+  };
+  const fontUrls=[
+    ...new Set(
+      [...fontCss.toString("utf8").matchAll(/url\((https:\/\/fonts\.gstatic\.com\/[^)]+)\)/g)]
+        .map(match=>match[1])
+    )
+  ];
+  await Promise.all(fontUrls.map(async url=>{
+    const response=await fetch(url,{signal:AbortSignal.timeout(30000)});
+    if(!response.ok) throw new Error(`Police de test indisponible (${response.status}) : ${url}`);
+    assets[url]={
+      type:response.headers.get("content-type")||"font/ttf",
+      body:Buffer.from(await response.arrayBuffer())
+    };
+  }));
+  return assets;
 }
 
 function point(eastKm, northKm = 0){
@@ -69,7 +127,10 @@ function scenario(overrides = {}){
     directions:[270,270,270,270],
     missingHours:[],
     weatherDelayMs:0,
+    weatherBatchError:false,
     weatherErrorCenters:[],
+    firms:{mode:"success"},
+    nominatim:{mode:"success"},
     overpass:{mode:"success",elements:[]},
     ...overrides
   };
@@ -174,6 +235,7 @@ function initScript(config){
     if(!scenario.noKey) localStorage.setItem("egx_incendies_firms_key","TEST_KEY_NOT_REAL");
     window.__egxCounts={
       firms:0,
+      firmsAborts:0,
       weather:0,
       weatherActive:0,
       weatherMaxActive:0,
@@ -181,6 +243,7 @@ function initScript(config){
       overpass:0,
       overpassAborts:0,
       nominatim:0,
+      nominatimTimes:[],
       share:0
     };
     try{
@@ -227,7 +290,7 @@ function initScript(config){
         if(i<6) return scenario.directions[1];
         return i<12?scenario.directions[2]:scenario.directions[3];
       });
-      return JSON.stringify({
+      return {
         utc_offset_seconds:0,
         current:{
           time:times[0],
@@ -241,7 +304,7 @@ function initScript(config){
           wind_direction_10m:directions,
           wind_gusts_10m:speeds.map(value=>value===null?null:value+5)
         }
-      });
+      };
     };
     const overpassReply=(entry,options)=>{
       if(entry.mode==="network") return Promise.reject(new TypeError("network"));
@@ -269,20 +332,54 @@ function initScript(config){
     window.fetch=(input,options={})=>{
       const url=String(input?.url||input);
       if(url.includes("firms.modaps.eosdis.nasa.gov")){
-        window.__egxCounts.firms++;
-        return response(csv(),200,"text/csv");
+        const call=window.__egxCounts.firms++;
+        const refreshIndex=Math.floor(call/4);
+        const entry=scenario.firms.sequence?.[refreshIndex]||scenario.firms;
+        const failedSource=(entry.failSources||[]).some(source=>url.includes(\`/\${source}/\`));
+        if(entry.mode==="error" || failedSource){
+          return response("indisponible",entry.status||503,"text/plain");
+        }
+        if(entry.mode==="invalid") return response("format,inattendu",200,"text/csv");
+        if(entry.mode==="timeout"){
+          return new Promise((resolve,reject)=>{
+            options.signal?.addEventListener("abort",()=>{
+              window.__egxCounts.firmsAborts++;
+              reject(options.signal.reason||new DOMException("Aborted","AbortError"));
+            },{once:true});
+          });
+        }
+        if(!entry.delay) return response(csv(),200,"text/csv");
+        return new Promise((resolve,reject)=>{
+          const timer=setTimeout(()=>resolve(new Response(csv(),{
+            status:200,
+            headers:{"Content-Type":"text/csv"}
+          })),entry.delay);
+          options.signal?.addEventListener("abort",()=>{
+            clearTimeout(timer);
+            window.__egxCounts.firmsAborts++;
+            reject(options.signal.reason||new DOMException("Aborted","AbortError"));
+          },{once:true});
+        });
       }
       if(url.includes("api.open-meteo.com")){
         window.__egxCounts.weather++;
         const weatherUrl=new URL(url);
-        const latitude=Number(weatherUrl.searchParams.get("latitude"));
-        const longitude=Number(weatherUrl.searchParams.get("longitude"));
+        const latitudes=weatherUrl.searchParams.get("latitude").split(",").map(Number);
+        const longitudes=weatherUrl.searchParams.get("longitude").split(",").map(Number);
+        const multiple=latitudes.length>1;
         const targetedError=(scenario.weatherErrorCenters||[]).some(center=>
-          Math.abs(latitude-center.lat)<.01 &&
-          Math.abs(longitude-center.lon)<.01
+          latitudes.some((latitude,index)=>
+            Math.abs(latitude-center.lat)<.01 &&
+            Math.abs(longitudes[index]-center.lon)<.01
+          )
         );
-        if(scenario.weatherError || targetedError) return response("{}",503);
-        if(!scenario.weatherDelayMs) return response(weather());
+        if(scenario.weatherError || targetedError || (multiple&&scenario.weatherBatchError)){
+          return response("{}",503);
+        }
+        const weatherBody=()=>JSON.stringify(
+          multiple?latitudes.map(()=>weather()):weather()
+        );
+        if(!scenario.weatherDelayMs) return response(weatherBody());
         window.__egxCounts.weatherActive++;
         window.__egxCounts.weatherMaxActive=Math.max(
           window.__egxCounts.weatherMaxActive,
@@ -297,7 +394,7 @@ function initScript(config){
           };
           const timer=setTimeout(()=>{
             finish();
-            resolve(new Response(weather(),{
+            resolve(new Response(weatherBody(),{
               status:200,
               headers:{"Content-Type":"application/json"}
             }));
@@ -316,14 +413,30 @@ function initScript(config){
         return overpassReply(entry,options);
       }
       if(url.includes("nominatim.openstreetmap.org")){
-        window.__egxCounts.nominatim++;
-        return response(JSON.stringify([{
+        const call=window.__egxCounts.nominatim++;
+        window.__egxCounts.nominatimTimes.push(Date.now());
+        const entry=scenario.nominatim.sequence?.[call]||scenario.nominatim;
+        const cityResults=entry.results||[{
           name:"Lyon",
           display_name:"Lyon, France",
           lat:"45.7578",
           lon:"4.8320",
           address:{city:"Lyon"}
-        }]));
+        }];
+        if(entry.mode==="error") return response("{}",503);
+        if(!entry.delay) return response(JSON.stringify(cityResults));
+        return new Promise((resolve,reject)=>{
+          const timer=setTimeout(()=>resolve(new Response(JSON.stringify(cityResults),{
+            status:200,
+            headers:{"Content-Type":"application/json"}
+          })),entry.delay);
+          if(!entry.ignoreAbort){
+            options.signal?.addEventListener("abort",()=>{
+              clearTimeout(timer);
+              reject(options.signal.reason||new DOMException("Aborted","AbortError"));
+            },{once:true});
+          }
+        });
       }
       return nativeFetch(input,options);
     };
@@ -337,8 +450,34 @@ async function openPage(baseUrl,port,config){
   await Promise.all([
     cdp.send("Page.enable"),
     cdp.send("Runtime.enable"),
-    cdp.send("Log.enable")
+    cdp.send("Log.enable"),
+    cdp.send("Fetch.enable",{patterns:[
+      ...Object.keys(LEAFLET_ASSETS).map(urlPattern=>({urlPattern})),
+      {urlPattern:"https://fonts.googleapis.com/*"},
+      {urlPattern:"https://fonts.gstatic.com/*"}
+    ]})
   ]);
+  cdp.on("Fetch.requestPaused",params=>{
+    const asset=browserAssets?.[params.request.url] ||
+      (params.request.url.startsWith("https://fonts.googleapis.com/")
+        ?browserAssets?.[GOOGLE_FONTS_URL]
+        :null);
+    if(!asset){
+      cdp.send("Fetch.continueRequest",{requestId:params.requestId})
+        .catch(error=>consoleProblems.push(`Ressource externe : ${error.message}`));
+      return;
+    }
+    cdp.send("Fetch.fulfillRequest",{
+      requestId:params.requestId,
+      responseCode:200,
+      responseHeaders:[
+        {name:"Content-Type",value:asset?.type||"text/css; charset=utf-8"},
+        {name:"Access-Control-Allow-Origin",value:"*"},
+        {name:"Cache-Control",value:"public, max-age=3600"}
+      ],
+      body:asset.body.toString("base64")
+    }).catch(error=>consoleProblems.push(`Ressource contrôlée : ${error.message}`));
+  });
   cdp.on("Runtime.exceptionThrown",params=>{
     consoleProblems.push(params.exceptionDetails.exception?.description||params.exceptionDetails.text);
   });
@@ -350,7 +489,8 @@ async function openPage(baseUrl,port,config){
   await cdp.send("Emulation.setDeviceMetricsOverride",config.viewport);
   await cdp.send("Page.addScriptToEvaluateOnNewDocument",{source:initScript(config)});
   await cdp.send("Page.navigate",{url:baseUrl});
-  await waitFor("document.readyState==='complete' && Boolean(window.L)",cdp,15000);
+  await waitFor("document.readyState!=='loading' && Boolean(window.L)",cdp,30000);
+  await evaluate("document.fonts.ready.then(()=>true)",cdp);
   return {cdp,target};
 }
 
@@ -400,14 +540,46 @@ async function mainSmokeState(cdp){
 }
 
 async function run(){
+  if(!CHROME){
+    throw new Error("Chrome/Chromium introuvable. Définissez CHROME_PATH.");
+  }
+  browserAssets=await loadBrowserAssets();
   const server=staticServer();
   await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
   const baseUrl=`http://127.0.0.1:${server.address().port}/`;
-  for(const resource of ["","style.css?v=5","app.js?v=5"]){
+  for(const resource of ["","style.css?v=6","app.js?v=6"]){
     const response=await fetch(`${baseUrl}${resource}`);
     assert(`HTTP 200 ${resource||"/"}`,response.status===200,String(response.status));
   }
+  const html=fs.readFileSync(path.join(APP,"index.html"),"utf8");
   const source=fs.readFileSync(path.join(APP,"app.js"),"utf8");
+  const ids=[...html.matchAll(/\sid="([^"]+)"/g)].map(match=>match[1]);
+  const uniqueIds=new Set(ids);
+  const bindings=[...source.matchAll(/\$\("([^"]+)"\)/g)].map(match=>match[1]);
+  assert("aucun ID HTML dupliqué",uniqueIds.size===ids.length,String(ids.length-uniqueIds.size));
+  assert(
+    "aucun binding DOM orphelin",
+    bindings.every(id=>uniqueIds.has(id)),
+    bindings.filter(id=>!uniqueIds.has(id)).join("|")
+  );
+  assert(
+    "trois clés localStorage historiques inchangées",
+    [
+      "egx_incendies_firms_key",
+      "egx_incendies_settings",
+      "egx_incendies_theme"
+    ].every(key=>source.includes(`"${key}"`))
+  );
+  assert("CSP statique présente",html.includes('http-equiv="Content-Security-Policy"'));
+  assert(
+    "intégrité Leaflet CSS et JavaScript",
+    html.includes("sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=") &&
+    html.includes("sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=")
+  );
+  assert(
+    "aucune clé FIRMS plausible dans les fichiers publics",
+    !/[A-Za-z0-9]{32}/.test(`${html}\n${source}`)
+  );
   assert(
     "actualisation automatique 10 min conservée",
     /setInterval\([\s\S]*10\*60\*1000/.test(source)
@@ -415,6 +587,7 @@ async function run(){
   const profile=fs.mkdtempSync(path.join(os.tmpdir(),"egx-chrome-m2-"));
   const chrome=spawn(CHROME,[
     "--headless=new",
+    "--no-sandbox",
     "--remote-debugging-port=0",
     `--user-data-dir=${profile}`,
     "--no-first-run",
@@ -456,6 +629,25 @@ async function run(){
       overpass:{mode:"success",elements:dense}
     }));
     await openFirstDetail(page.cdp);
+    assert(
+      "clé NASA existante conservée",
+      await evaluate("localStorage.getItem('egx_incendies_firms_key')==='TEST_KEY_NOT_REAL'",page.cdp)
+    );
+    assert(
+      "réglages historiques restaurés",
+      await evaluate(`(()=>{
+        const saved=JSON.parse(localStorage.getItem("egx_incendies_settings"));
+        return saved.radius===250 && saved.hours===48 && saved.mode==="points+hulls";
+      })()`,page.cdp)
+    );
+    assert(
+      "ancienneté de la détection la plus proche visible",
+      await evaluate("document.getElementById('nearestAge').textContent.trim().length>1",page.cdp)
+    );
+    assert(
+      "attribution Nominatim visible",
+      await evaluate("document.querySelector('.city-source').textContent.includes('OpenStreetMap')",page.cdp)
+    );
     let state=await localityState(page.cdp);
     assert("ville surveillée 0–3 h",state.watched.includes("3 prochaines heures"),state.watched);
     assert("liste dense limitée à neuf",state.names.length===9,String(state.names.length));
@@ -498,6 +690,11 @@ async function run(){
     await evaluate("document.getElementById('cityQuery').value='Lyon';document.getElementById('searchCity').click()",page.cdp);
     await waitFor("!document.getElementById('cityResults').hidden",page.cdp);
     assert("recherche Nominatim préservée",await evaluate("document.getElementById('cityResults').textContent.includes('Lyon')",page.cdp));
+    await evaluate("document.getElementById('searchCity').click()",page.cdp);
+    assert(
+      "recherche Nominatim répétée servie par le cache",
+      await evaluate("window.__egxCounts.nominatim===1",page.cdp)
+    );
     await closePage(page,port);
 
     page=await openPage(baseUrl,port,scenario({
@@ -629,7 +826,7 @@ async function run(){
       directions:[270,270,180,180],
       weatherErrorCenters:[unavailableGroup]
     }));
-    await waitFor("window.__egxCounts.weather===3",page.cdp);
+    await waitFor("window.__egxCounts.weather===4",page.cdp);
     await waitFor("window.__egxCounts.weatherActive===0",page.cdp);
     mainState=await mainSmokeState(page.cdp);
     assert("succès météo partiel foyer par foyer",mainState.arrows===1 && mainState.corridors===3,JSON.stringify(mainState));
@@ -657,19 +854,38 @@ async function run(){
       viewport:{width:1440,height:1000,deviceScaleFactor:1,mobile:false},
       weatherDelayMs:50
     }));
-    await waitFor("window.__egxCounts.weather===17 && window.__egxCounts.weatherActive===0",page.cdp,15000);
+    await waitFor("window.__egxCounts.weather===2 && window.__egxCounts.weatherActive===0",page.cdp,15000);
     await evaluate("document.getElementById('zoomIn').click()",page.cdp);
     await waitFor("document.querySelectorAll('.main-smoke-direction-arrow').length===16",page.cdp);
     mainState=await mainSmokeState(page.cdp);
     assert("grand nombre reprend la limite overlays 16",mainState.arrows===16,JSON.stringify(mainState));
-    assert("concurrence météo limitée à quatre",mainState.weatherMaxActive<=4 && mainState.weatherMaxActive>1,String(mainState.weatherMaxActive));
+    assert("prévisions des 16 foyers groupées en un appel",mainState.weather===2,String(mainState.weather));
     measurements.largeGroupRenderMs=Date.now()-manyStart;
+    measurements.weatherCallsFor16Groups=mainState.weather;
     measurements.maxWeatherConcurrency=mainState.weatherMaxActive;
     assert("grand nombre rendu sans attente FIRMS bloquante",measurements.largeGroupRenderMs<5000,`${measurements.largeGroupRenderMs} ms`);
     const mainDesktopShot=path.join(artifacts,"main-smoke-desktop-dark.png");
     const mainDesktopCapture=await page.cdp.send("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
     fs.writeFileSync(mainDesktopShot,Buffer.from(mainDesktopCapture.data,"base64"));
     assert("capture trajectoires desktop sombre",fs.statSync(mainDesktopShot).size>10000,String(fs.statSync(mainDesktopShot).size));
+    await closePage(page,port);
+
+    page=await openPage(baseUrl,port,scenario({
+      fireGroups:manyGroups,
+      detectionsPerGroup:15,
+      weatherBatchError:true,
+      weatherDelayMs:50
+    }));
+    await waitFor("window.__egxCounts.weather===18 && window.__egxCounts.weatherActive===0",page.cdp,15000);
+    await evaluate("document.getElementById('zoomIn').click()",page.cdp);
+    await waitFor("document.querySelectorAll('.main-smoke-direction-arrow').length===16",page.cdp);
+    mainState=await mainSmokeState(page.cdp);
+    assert("repli météo individuel après échec groupé",mainState.arrows===16,JSON.stringify(mainState));
+    assert(
+      "concurrence du repli météo limitée à quatre",
+      mainState.weatherMaxActive<=4 && mainState.weatherMaxActive>=3,
+      String(mainState.weatherMaxActive)
+    );
     await closePage(page,port);
 
     page=await openPage(baseUrl,port,scenario({
@@ -739,6 +955,23 @@ async function run(){
       viewport:{width:1440,height:1000,deviceScaleFactor:1,mobile:false},
       overpass:{mode:"success",elements:[osm(110,"Seule localité rurale","hamlet",point(70))]}
     }));
+    await evaluate(`(()=>{
+      const tab=document.getElementById("tabOverview");
+      tab.focus();
+      tab.dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowRight",bubbles:true}));
+    })()`,page.cdp);
+    assert(
+      "onglets accessibles avec les flèches du clavier",
+      await evaluate(`document.activeElement===document.getElementById("tabSettings") &&
+        document.getElementById("tabSettings").getAttribute("aria-selected")==="true"`,page.cdp)
+    );
+    await evaluate(`document.getElementById("tabSettings").dispatchEvent(
+      new KeyboardEvent("keydown",{key:"Home",bubbles:true})
+    )`,page.cdp);
+    assert(
+      "touche Début revient au premier onglet",
+      await evaluate("document.activeElement===document.getElementById('tabOverview')",page.cdp)
+    );
     await openFirstDetail(page.cdp);
     state=await localityState(page.cdp);
     assert("zone rurale avec une localité",state.names.includes("Seule localité rurale"),state.names.join("|"));
@@ -751,19 +984,49 @@ async function run(){
     await closePage(page,port);
 
     const responsiveShots={};
+    let smallMapShot=null;
     for(const test of [
       {name:"desktop étroit 1024×900",slug:"desktop-1024",width:1024,height:900,desktop:true,theme:"light",detections:40},
       {name:"tablette portrait 768×1024",slug:"tablet-portrait",width:768,height:1024,desktop:false,theme:"dark",detections:4},
       {name:"tablette paysage 1024×768",slug:"tablet-landscape",width:1024,height:768,desktop:true,theme:"light",detections:4},
+      {name:"zoom navigateur 200 % (1440×1000)",slug:"browser-zoom-200",width:720,height:500,desktop:false,mobileDevice:false,scale:2,theme:"light",detections:4},
       {name:"mobile 390×844",slug:"mobile-390",width:390,height:844,desktop:false,theme:"light",detections:2},
       {name:"petit mobile 320×568",slug:"mobile-small",width:320,height:568,desktop:false,theme:"dark",detections:3}
     ]){
       page=await openPage(baseUrl,port,scenario({
         theme:test.theme,
-        viewport:{width:test.width,height:test.height,deviceScaleFactor:1,mobile:!test.desktop},
+        viewport:{
+          width:test.width,
+          height:test.height,
+          deviceScaleFactor:test.scale||1,
+          mobile:test.mobileDevice??!test.desktop
+        },
         detectionsPerGroup:test.detections,
         overpass:{mode:"success",elements:[]}
       }));
+      await waitFor("document.querySelectorAll('.feed-item').length>0",page.cdp);
+      const mapGeometry=await evaluate(`(()=>{
+        const summary=document.querySelector(".map-summary").getBoundingClientRect();
+        return {
+          documentHorizontal:document.documentElement.scrollWidth>document.documentElement.clientWidth+1,
+          summaryLeft:summary.left,
+          summaryRight:summary.right,
+          nearestAge:document.getElementById("nearestAge").textContent
+        };
+      })()`,page.cdp);
+      assert(
+        `${test.name} carte sans débordement`,
+        !mapGeometry.documentHorizontal &&
+          mapGeometry.summaryLeft>=-1 &&
+          mapGeometry.summaryRight<=test.width+1,
+        JSON.stringify(mapGeometry)
+      );
+      assert(`${test.name} ancienneté textuelle`,mapGeometry.nearestAge.trim().length>1,mapGeometry.nearestAge);
+      if(test.slug==="mobile-small"){
+        smallMapShot=path.join(artifacts,"map-mobile-small.png");
+        const mapCapture=await page.cdp.send("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
+        fs.writeFileSync(smallMapShot,Buffer.from(mapCapture.data,"base64"));
+      }
       await openFirstDetail(page.cdp);
       await localityState(page.cdp);
       const geometry=await evaluate(`(()=>{
@@ -861,6 +1124,21 @@ async function run(){
     assert("météo indisponible sans blocage FIRMS",state.feedItems===1,String(state.feedItems));
     await closePage(page,port);
 
+    page=await openPage(baseUrl,port,scenario({weatherDelayMs:1200}));
+    await waitFor("document.querySelectorAll('.feed-item').length===1",page.cdp);
+    assert(
+      "météo lente ne bloque pas FIRMS",
+      await evaluate(`!document.getElementById("refreshTop").disabled &&
+        window.__egxCounts.weatherActive>0 &&
+        document.getElementById("sourceStatusText").textContent.includes("Mis à jour")`,page.cdp)
+    );
+    await waitFor("window.__egxCounts.weatherActive===0 && window.__egxCounts.weather===1",page.cdp,5000);
+    assert(
+      "vent ajouté après la réponse météo lente",
+      await evaluate("document.getElementById('windSpeed').textContent!=='—'",page.cdp)
+    );
+    await closePage(page,port);
+
     page=await openPage(baseUrl,port,scenario({
       missingHours:[5,6,7,8,9,10,11,12],
       overpass:{mode:"success",elements:[osm(130,"Localité trajectoire partielle","village",point(20))]}
@@ -915,6 +1193,106 @@ async function run(){
     assert("réponse obsolète ignorée",!state.names.includes("Réponse obsolète"),state.names.join("|"));
     await closePage(page,port);
 
+    page=await openPage(baseUrl,port,scenario({
+      nominatim:{
+        mode:"success",
+        sequence:[
+          {
+            mode:"success",
+            delay:1200,
+            ignoreAbort:true,
+            results:[{name:"Slowville",display_name:"Slowville, France",lat:"46",lon:"2"}]
+          },
+          {
+            mode:"success",
+            results:[{name:"Fastville",display_name:"Fastville, France",lat:"47",lon:"3"}]
+          }
+        ]
+      }
+    }));
+    await waitFor("document.querySelectorAll('.feed-item').length===1",page.cdp);
+    await evaluate(`(()=>{
+      document.querySelector('[data-nav="settings"]').click();
+      const input=document.getElementById("cityQuery");
+      input.value="Slowville";
+      document.getElementById("searchCity").click();
+    })()`,page.cdp);
+    await waitFor("window.__egxCounts.nominatim===1",page.cdp);
+    await evaluate(`(()=>{
+      const input=document.getElementById("cityQuery");
+      input.value="Fastville";
+      input.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true}));
+    })()`,page.cdp);
+    await waitFor("document.getElementById('cityResults').textContent.includes('Fastville')",page.cdp,4000);
+    await new Promise(resolve=>setTimeout(resolve,400));
+    assert(
+      "réponse Nominatim obsolète ignorée",
+      await evaluate(`document.getElementById("cityResults").textContent.includes("Fastville") &&
+        !document.getElementById("cityResults").textContent.includes("Slowville")`,page.cdp)
+    );
+    assert(
+      "requêtes Nominatim espacées d’au moins une seconde",
+      await evaluate(`window.__egxCounts.nominatimTimes.length===2 &&
+        window.__egxCounts.nominatimTimes[1]-window.__egxCounts.nominatimTimes[0]>=950`,page.cdp),
+      JSON.stringify(await evaluate("window.__egxCounts.nominatimTimes",page.cdp))
+    );
+    await closePage(page,port);
+
+    page=await openPage(baseUrl,port,scenario({
+      firms:{mode:"success",delay:350}
+    }));
+    assert(
+      "chargement FIRMS annoncé sans faux état vide",
+      await waitFor(`document.getElementById("sourceStatusText").textContent.includes("Connexion") &&
+        document.getElementById("feed").textContent.includes("Chargement") &&
+        !document.getElementById("feed").textContent.includes("Aucune détection")`,page.cdp)
+    );
+    await waitFor("document.querySelectorAll('.feed-item').length===1",page.cdp);
+    await closePage(page,port);
+
+    page=await openPage(baseUrl,port,scenario({
+      firms:{mode:"success",failSources:["MODIS_NRT"]}
+    }));
+    await waitFor("document.querySelectorAll('.feed-item').length===1",page.cdp);
+    assert(
+      "réponse FIRMS partielle conservée",
+      await evaluate(`document.getElementById("headerError").textContent.includes("1 source satellite indisponible") &&
+        document.getElementById("count").textContent.includes("détection")`,page.cdp)
+    );
+    await closePage(page,port);
+
+    page=await openPage(baseUrl,port,scenario({
+      firms:{mode:"invalid"}
+    }));
+    await waitFor("document.getElementById('mapStage').getAttribute('aria-busy')==='false'",page.cdp);
+    assert(
+      "CSV FIRMS invalide signalé comme indisponible",
+      await evaluate(`document.getElementById("feed").textContent.includes("indisponibles") &&
+        !document.getElementById("feed").textContent.includes("Aucune détection")`,page.cdp)
+    );
+    await closePage(page,port);
+
+    page=await openPage(baseUrl,port,scenario({
+      firms:{
+        mode:"success",
+        sequence:[
+          {mode:"success"},
+          {mode:"error",status:429}
+        ]
+      }
+    }));
+    await waitFor("document.querySelectorAll('.feed-item').length===1",page.cdp);
+    await evaluate("document.getElementById('refreshTop').click()",page.cdp);
+    await waitFor(`window.__egxCounts.firms===8 &&
+      document.getElementById("mapStage").getAttribute("aria-busy")==="false"`,page.cdp);
+    assert(
+      "échec FIRMS total conserve la dernière carte du même périmètre",
+      await evaluate(`document.querySelectorAll(".feed-item").length===1 &&
+        document.getElementById("sourceStatusText").textContent.includes("Dernières données") &&
+        document.getElementById("headerError").textContent.includes("restent affichées")`,page.cdp)
+    );
+    await closePage(page,port);
+
     page=await openPage(baseUrl,port,scenario({noKey:true}));
     assert("état sans clé NASA",await waitFor("document.getElementById('keyStatus').textContent.includes('requise')",page.cdp));
     assert("aucun appel FIRMS sans clé",await evaluate("window.__egxCounts.firms===0",page.cdp));
@@ -925,7 +1303,7 @@ async function run(){
       assertions:results.length,
       passed:results.filter(result=>result.ok).length,
       failed:results.filter(result=>!result.ok),
-      artifacts:{mobileShot,desktopShot,mainMobileShot,mainDesktopShot,...responsiveShots},
+      artifacts:{mobileShot,desktopShot,mainMobileShot,mainDesktopShot,smallMapShot,...responsiveShots},
       measurements,
       consoleProblems
     },null,2));
