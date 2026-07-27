@@ -2,6 +2,9 @@
 
 EGX Incendies montre les détections thermiques par satellite autour de la ville de votre choix.
 
+> [!NOTE]
+> La V2 est publiée avec trois évolutions : qualité de l’air estimée, champs MAP_KEY sans comportement de mot de passe et état explicite lorsqu’aucune détection n’est reçue.
+
 ## [Ouvrir EGX Incendies →](https://elgrandexu.github.io/EGX_Incendies/)
 
 ## Utiliser l’application en quelques minutes
@@ -27,6 +30,7 @@ La clé reste dans le navigateur de cet appareil. Elle est envoyée directement 
 - les détections proches regroupées en foyers probables ;
 - la distance et l’ancienneté de la détection la plus proche ;
 - le vent actuel ;
+- la qualité de l’air estimée selon l’indice européen EAQI, sa catégorie et le ou les polluants déterminants ;
 - un niveau de risque pédagogique lié aux fumées ;
 - les directions possibles des fumées, représentées par des flèches sur la carte ;
 - le détail de chaque foyer probable ;
@@ -34,6 +38,8 @@ La clé reste dans le navigateur de cet appareil. Elle est envoyée directement 
 - un thème clair et un thème sombre.
 
 Les informations évoluent avec les données reçues. Quand l’application reste ouverte, elle les actualise toutes les 10 minutes.
+
+Une réponse valide sans détection est affichée comme un état normal : **Aucune** détection la plus proche et **Aucun signal** pour le risque fumée. Cela signifie seulement qu’aucune détection thermique récente n’est disponible dans la zone et la période choisies ; cela ne garantit pas l’absence d’incendie ou de fumée.
 
 ## Repères dans l’application
 
@@ -95,7 +101,8 @@ Sur ordinateur, les mêmes contenus restent accessibles dans le panneau placé �
 ## Données et confidentialité
 
 - **NASA FIRMS** fournit les détections thermiques.
-- **Open-Meteo** fournit les informations sur le vent.
+- **Open-Meteo** fournit les informations sur le vent et distribue l’estimation de qualité de l’air.
+- **CAMS** — Copernicus Atmosphere Monitoring Service — fournit les données atmosphériques modélisées utilisées par Open‑Meteo.
 - **OpenStreetMap** fournit la carte et les noms des localités, via Overpass.
 - **Nominatim**, un service d’OpenStreetMap, recherche les villes.
 
@@ -111,7 +118,8 @@ La clé NASA, la ville et les préférences restent dans le navigateur de l’ap
 - Les foyers probables sont des regroupements automatiques. Ils ne confirment pas un incendie distinct.
 - Les trajectoires de fumées sont des estimations pédagogiques fondées sur les vents prévus à 10 m. Elles ne constituent pas un modèle de dispersion, une mesure de fumée ou une prévision des flammes.
 - Une localité affichée est seulement située dans l’axe géométrique estimé. Elle ne définit ni une zone de danger ni une consigne d’évacuation.
-- L’application ne mesure pas la qualité de l’air.
+- La qualité de l’air est une estimation modélisée CAMS via Open‑Meteo, pas une mesure officielle prise sur place. Sa résolution est d’environ **11 km en Europe** et **45 km pour le modèle mondial**.
+- Une mauvaise qualité de l’air ne prouve pas qu’un incendie proche en est la cause.
 - L’absence de détection ne signifie pas l’absence de danger.
 - L’application ne remplace ni les autorités, ni les alertes officielles, ni les services d’urgence.
 
@@ -137,7 +145,7 @@ Les ressources statiques sont regroupées sous `assets/` :
 - `assets/manifest.webmanifest` décrit le raccourci navigateur ;
 - `assets/icons/` contient le master SVG et les déclinaisons mobiles.
 
-L’application fonctionne sans serveur EGX et sans étape de compilation. GitHub Pages publie le site. Elle interroge NASA FIRMS, Open-Meteo, OpenStreetMap et Nominatim.
+L’application fonctionne sans serveur EGX et sans étape de compilation. GitHub Pages publie le site. Elle interroge NASA FIRMS, Open‑Meteo Forecast, Open‑Meteo Air Quality, OpenStreetMap, Overpass et Nominatim.
 
 Pour l’ouvrir en local, servez la racine du dépôt avec un serveur HTTP. Par exemple, lancez `python -m http.server 8000`, puis ouvrez `http://localhost:8000/`.
 

@@ -137,6 +137,11 @@ function scenario(overrides = {}){
     weatherDelayMs:0,
     weatherBatchError:false,
     weatherErrorCenters:[],
+    airQuality:{
+      mode:"success",
+      value:34,
+      components:{pm25:34,pm10:22,no2:18,o3:12,so2:7}
+    },
     firms:{mode:"success"},
     nominatim:{mode:"success"},
     overpass:{mode:"success",elements:[]},
@@ -257,6 +262,11 @@ function initScript(config){
       window.setTimeout=(handler,delay,...args)=>
         nativeSetTimeout(handler,delay===20000?50:delay,...args);
     }
+    if(scenario.accelerateAirQualityTimeout){
+      const nativeSetTimeout=window.setTimeout.bind(window);
+      window.setTimeout=(handler,delay,...args)=>
+        nativeSetTimeout(handler,delay===12000?50:delay,...args);
+    }
     window.__egxCounts={
       firms:0,
       firmsKeys:[],
@@ -265,6 +275,10 @@ function initScript(config){
       weatherActive:0,
       weatherMaxActive:0,
       weatherAborts:0,
+      airQuality:0,
+      airQualityUrls:[],
+      airQualityActive:0,
+      airQualityAborts:0,
       overpass:0,
       overpassAborts:0,
       nominatim:0,
@@ -331,6 +345,18 @@ function initScript(config){
         }
       };
     };
+    const airQualityBody=entry=>JSON.stringify({
+      current:{
+        time:Math.floor(Date.now()/1000),
+        european_aqi:entry.value,
+        european_aqi_pm2_5:entry.components?.pm25,
+        european_aqi_pm10:entry.components?.pm10,
+        european_aqi_nitrogen_dioxide:entry.components?.no2,
+        european_aqi_ozone:entry.components?.o3,
+        european_aqi_sulphur_dioxide:entry.components?.so2,
+        ...(entry.current||{})
+      }
+    });
     const overpassReply=(entry,options)=>{
       if(entry.mode==="network") return Promise.reject(new TypeError("network"));
       if(entry.mode==="timeout"){
@@ -390,6 +416,48 @@ function initScript(config){
             window.__egxCounts.firmsAborts++;
             reject(options.signal.reason||new DOMException("Aborted","AbortError"));
           },{once:true});
+        });
+      }
+      if(url.includes("air-quality-api.open-meteo.com")){
+        const call=window.__egxCounts.airQuality++;
+        window.__egxCounts.airQualityUrls.push(url);
+        const entry=scenario.airQuality.sequence?.[call]||scenario.airQuality;
+        if(entry.mode==="network") return Promise.reject(new TypeError("network"));
+        if(entry.mode==="error") return response("{}",entry.status||503);
+        if(entry.mode==="invalid-json") return response("{invalid");
+        if(entry.mode==="incomplete") return response(JSON.stringify(entry.body||{}));
+        if(entry.mode==="timeout"){
+          window.__egxCounts.airQualityActive++;
+          return new Promise((resolve,reject)=>{
+            options.signal?.addEventListener("abort",()=>{
+              window.__egxCounts.airQualityActive--;
+              window.__egxCounts.airQualityAborts++;
+              reject(options.signal.reason||new DOMException("Aborted","AbortError"));
+            },{once:true});
+          });
+        }
+        const body=airQualityBody(entry);
+        if(!entry.delay) return response(body);
+        window.__egxCounts.airQualityActive++;
+        return new Promise((resolve,reject)=>{
+          let settled=false;
+          const finish=()=>{
+            if(settled) return;
+            settled=true;
+            window.__egxCounts.airQualityActive--;
+          };
+          const timer=setTimeout(()=>{
+            finish();
+            resolve(new Response(body,{status:200,headers:{"Content-Type":"application/json"}}));
+          },entry.delay);
+          if(!entry.ignoreAbort){
+            options.signal?.addEventListener("abort",()=>{
+              clearTimeout(timer);
+              finish();
+              window.__egxCounts.airQualityAborts++;
+              reject(options.signal.reason||new DOMException("Aborted","AbortError"));
+            },{once:true});
+          }
         });
       }
       if(url.includes("api.open-meteo.com")){
@@ -577,6 +645,24 @@ async function mainSmokeState(cdp){
   })`,cdp);
 }
 
+async function airQualityState(cdp){
+  return evaluate(`({
+    badge:document.getElementById("airQualityBadge").textContent.replace(/\\s+/g," ").trim(),
+    label:document.getElementById("airQualityBadge").getAttribute("aria-label"),
+    status:document.getElementById("airQualityStatus").textContent,
+    pollutant:document.getElementById("airQualityPollutant").textContent,
+    retrieved:document.getElementById("airQualityRetrieved").textContent,
+    city:document.getElementById("airQualityCity").textContent,
+    level:Number(document.getElementById("airQualityBadge").dataset.level),
+    activeSegments:document.querySelectorAll("#airQualityBadge .air-quality-segment.active").length,
+    currentSegments:document.querySelectorAll("#airQualityBadge .air-quality-segment.current").length,
+    calls:window.__egxCounts.airQuality,
+    active:window.__egxCounts.airQualityActive,
+    aborts:window.__egxCounts.airQualityAborts,
+    banner:document.getElementById("headerError").textContent
+  })`,cdp);
+}
+
 async function run(){
   if(!CHROME){
     throw new Error("Chrome/Chromium introuvable. Définissez CHROME_PATH.");
@@ -587,10 +673,10 @@ async function run(){
   const baseUrl=`http://127.0.0.1:${server.address().port}/`;
   for(const resource of [
     "",
-    "style.css?v=10",
-    "app.js?v=9",
+    "style.css?v=11",
+    "app.js?v=10",
     "partage/index.html",
-    "assets/social-preview-v1.png",
+    "assets/social-preview-v2.png",
     "assets/icons/icon.svg?v=3",
     "assets/icons/icon-180.png?v=3",
     "assets/icons/icon-192.png?v=3",
@@ -640,13 +726,19 @@ async function run(){
       html.includes("Get MAP_KEY") &&
       html.includes("Enregistrer et ouvrir la carte") &&
       html.includes("jamais à un serveur EGX") &&
+      html.includes('id="mapKey" class="secret-input is-masked" type="text" autocomplete="one-time-code"') &&
+      html.includes('id="onboardingMapKey" class="secret-input is-masked" type="text" autocomplete="one-time-code"') &&
+      !html.includes('type="password"') &&
+      ["searchCity","applyCity","saveKey","clearKey"].every(id=>
+        new RegExp(`id="${id}"[^>]*type="button"|type="button"[^>]*id="${id}"`).test(html)
+      ) &&
       source.includes('const initialFocus=$("onboardingKeyLink")') &&
       !html.includes("Créez un compte Earthdata")
   );
   assert(
     "versions de cache CSS et JavaScript incrémentées",
-    html.includes('href="./style.css?v=10"') &&
-      html.includes('src="./app.js?v=9"')
+    html.includes('href="./style.css?v=11"') &&
+      html.includes('src="./app.js?v=10"')
   );
   assert(
     "métadonnées sociales absolues et cohérentes",
@@ -654,13 +746,15 @@ async function run(){
       html.includes('<meta property="og:type" content="website">') &&
       html.includes('<meta property="og:url" content="https://elgrandexu.github.io/EGX_Incendies/">') &&
       html.includes('<meta property="og:title" content="EGX Incendies — surveillez les foyers dans le monde">') &&
-      html.includes('<meta property="og:image" content="https://elgrandexu.github.io/EGX_Incendies/assets/social-preview-v1.png">') &&
+      html.includes('<meta property="og:image" content="https://elgrandexu.github.io/EGX_Incendies/assets/social-preview-v2.png">') &&
       html.includes('<meta property="og:image:width" content="1200">') &&
       html.includes('<meta property="og:image:height" content="627">') &&
       html.includes('<meta name="twitter:card" content="summary_large_image">') &&
-      html.includes('<meta name="twitter:image" content="https://elgrandexu.github.io/EGX_Incendies/assets/social-preview-v1.png">')
+      html.includes('<meta name="twitter:image" content="https://elgrandexu.github.io/EGX_Incendies/assets/social-preview-v2.png">') &&
+      html.includes("qualité de l’air estimée") &&
+      !html.includes("qualité de l’air en temps réel")
   );
-  const socialPreviewDimensions=pngDimensions(path.join(APP,"assets","social-preview-v1.png"));
+  const socialPreviewDimensions=pngDimensions(path.join(APP,"assets","social-preview-v2.png"));
   assert(
     "aperçu social au format 1200×627",
     socialPreviewDimensions?.width===1200 && socialPreviewDimensions.height===627,
@@ -671,7 +765,7 @@ async function run(){
     shareHtml.includes('<link rel="canonical" href="https://elgrandexu.github.io/EGX_Incendies/partage/">') &&
       shareHtml.includes('<meta property="og:url" content="https://elgrandexu.github.io/EGX_Incendies/partage/">') &&
       shareHtml.includes('<meta property="og:title" content="EGX Incendies — Carte mondiale des foyers">') &&
-      shareHtml.includes('<meta property="og:image" content="https://elgrandexu.github.io/EGX_Incendies/assets/social-preview-v1.png">') &&
+      shareHtml.includes('<meta property="og:image" content="https://elgrandexu.github.io/EGX_Incendies/assets/social-preview-v2.png">') &&
       !shareHtml.includes("Configuration de la surveillance")
   );
   assert(
@@ -692,6 +786,21 @@ async function run(){
   assert("visiteur de la page de partage redirigé vers l’application",redirectFor("Mozilla/5.0 Chrome/140")==="../");
   assert("robot LinkedIn maintenu sur les métadonnées de partage",redirectFor("LinkedInBot/1.0")===null);
   assert("CSP statique présente",html.includes('http-equiv="Content-Security-Policy"'));
+  assert(
+    "CSP autorise uniquement le domaine Air Quality requis",
+    html.includes("https://air-quality-api.open-meteo.com") &&
+      source.includes('new URL("https://air-quality-api.open-meteo.com/v1/air-quality")')
+  );
+  assert(
+    "contrat Air Quality et attributions déclarés",
+    html.includes('id="airQualityBadge"') &&
+      html.includes('id="airQualityStatus"') &&
+      html.includes("Estimation modélisée CAMS via Open‑Meteo") &&
+      html.includes("ne prouve pas qu’un incendie proche en est la cause") &&
+      html.includes("atmosphere.copernicus.eu") &&
+      source.includes('"domains","auto"') &&
+      source.includes('"timeformat","unixtime"')
+  );
   assert(
     "intégrité Leaflet CSS et JavaScript",
     html.includes("sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=") &&
@@ -1286,7 +1395,21 @@ async function run(){
       {name:"tablette paysage 1024×768",slug:"tablet-landscape",width:1024,height:768,desktop:true,theme:"light",detections:4},
       {name:"zoom navigateur 200 % (1440×1000)",slug:"browser-zoom-200",width:720,height:500,desktop:false,mobileDevice:false,scale:2,theme:"light",detections:4},
       {name:"mobile 390×844",slug:"mobile-390",width:390,height:844,desktop:false,theme:"light",detections:2},
-      {name:"petit mobile 320×568",slug:"mobile-small",width:320,height:568,desktop:false,theme:"dark",detections:3}
+      {
+        name:"petit mobile 320×568",
+        slug:"mobile-small",
+        width:320,
+        height:568,
+        desktop:false,
+        theme:"dark",
+        detections:3,
+        location:{name:"Saint-Remy-en-Bouzemont-Saint-Genest-et-Isson",...point(10)},
+        airQuality:{
+          mode:"success",
+          value:101,
+          components:{pm25:101,pm10:101,no2:40,o3:20,so2:10}
+        }
+      }
     ]){
       page=await openPage(baseUrl,port,scenario({
         theme:test.theme,
@@ -1297,6 +1420,12 @@ async function run(){
           mobile:test.mobileDevice??!test.desktop
         },
         detectionsPerGroup:test.detections,
+        location:test.location||{name:"Bordeaux",...point(10)},
+        airQuality:test.airQuality||{
+          mode:"success",
+          value:34,
+          components:{pm25:34,pm10:22,no2:18,o3:12,so2:7}
+        },
         overpass:{mode:"success",elements:[]}
       }));
       await waitFor("document.querySelectorAll('.feed-item').length>0",page.cdp);
@@ -1317,6 +1446,56 @@ async function run(){
         JSON.stringify(mapGeometry)
       );
       assert(`${test.name} ancienneté textuelle`,mapGeometry.nearestAge.trim().length>1,mapGeometry.nearestAge);
+      const gaugeGeometry=await evaluate(`(()=>{
+        const status=document.getElementById("sourceStatus").getBoundingClientRect();
+        const gauge=document.getElementById("airQualityBadge").getBoundingClientRect();
+        const summary=document.querySelector(".map-summary").getBoundingClientRect();
+        const controls=document.querySelector(".map-controls").getBoundingClientRect();
+        const smoke=document.querySelector(".smoke-layer-control").getBoundingClientRect();
+        const overlaps=(a,b)=>!(a.right<=b.left || a.left>=b.right || a.bottom<=b.top || a.top>=b.bottom);
+        return {
+          gaugeLeft:gauge.left,
+          gaugeRight:gauge.right,
+          gaugeTop:gauge.top,
+          gaugeBottom:gauge.bottom,
+          gaugeWidth:gauge.width,
+          gaugeHeight:gauge.height,
+          statusLeft:status.left,
+          statusRight:status.right,
+          statusTop:status.top,
+          statusHeight:status.height,
+          overlapsStatus:overlaps(gauge,status),
+          overlapsSummary:overlaps(gauge,summary),
+          overlapsControls:overlaps(gauge,controls),
+          overlapsSmoke:overlaps(gauge,smoke),
+          level:Number(document.getElementById("airQualityBadge").dataset.level),
+          active:document.querySelectorAll("#airQualityBadge .air-quality-segment.active").length,
+          current:document.querySelectorAll("#airQualityBadge .air-quality-segment.current").length,
+          label:document.querySelector("#airQualityBadge .air-quality-label").textContent.trim()
+        };
+      })()`,page.cdp);
+      const expectedGaugeLevel=test.airQuality?.value===101?6:2;
+      assert(
+        `${test.name} échelle Air flottante, lisible et graduée`,
+        gaugeGeometry.label==="Air" &&
+          gaugeGeometry.gaugeWidth>=100 &&
+          gaugeGeometry.gaugeHeight===44 &&
+          gaugeGeometry.gaugeLeft>=-1 &&
+          gaugeGeometry.gaugeRight<=test.width+1 &&
+          gaugeGeometry.gaugeTop>=-1 &&
+          gaugeGeometry.gaugeBottom<=test.height+1 &&
+          gaugeGeometry.statusLeft>=-1 &&
+          gaugeGeometry.statusRight<=test.width+1 &&
+          Math.abs(gaugeGeometry.gaugeTop-gaugeGeometry.statusTop)<=1 &&
+          !gaugeGeometry.overlapsStatus &&
+          !gaugeGeometry.overlapsSummary &&
+          !gaugeGeometry.overlapsControls &&
+          !gaugeGeometry.overlapsSmoke &&
+          gaugeGeometry.level===expectedGaugeLevel &&
+          gaugeGeometry.active===expectedGaugeLevel &&
+          gaugeGeometry.current===1,
+        JSON.stringify(gaugeGeometry)
+      );
       const controlGeometry=await evaluate(`(()=>{
         const smoke=document.querySelector(".smoke-layer-control").getBoundingClientRect();
         const home=document.getElementById("homeBtn").getBoundingClientRect();
@@ -1353,7 +1532,66 @@ async function run(){
       fs.writeFileSync(mapShot,Buffer.from(mapCapture.data,"base64"));
       assert(`${test.name} capture carte`,fs.statSync(mapShot).size>10000,String(fs.statSync(mapShot).size));
       responsiveShots[`map-${test.slug}`]=mapShot;
-      if(test.slug==="mobile-small") smallMapShot=mapShot;
+      if(test.slug==="mobile-390" && process.env.EGX_UPDATE_README_SCREENSHOTS==="1"){
+        const readmeShots=path.join(APP,"docs","screenshots");
+        fs.mkdirSync(readmeShots,{recursive:true});
+        fs.writeFileSync(path.join(readmeShots,"mobile-map.png"),Buffer.from(mapCapture.data,"base64"));
+
+        await evaluate(`(()=>{
+          document.querySelector('[data-nav="settings"]').click();
+          const panel=document.getElementById("panelSettings");
+          panel.scrollTop=0;
+        })()`,page.cdp);
+        await new Promise(resolve=>setTimeout(resolve,250));
+        let readmeCapture=await page.cdp.send("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
+        fs.writeFileSync(path.join(readmeShots,"mobile-configuration.png"),Buffer.from(readmeCapture.data,"base64"));
+
+        await evaluate(`(()=>{
+          document.getElementById("mapKey").value="";
+          document.getElementById("onboardingMapKey").value="";
+          document.getElementById("mapKey").closest(".form-card").scrollIntoView({block:"start"});
+        })()`,page.cdp);
+        await new Promise(resolve=>setTimeout(resolve,250));
+        readmeCapture=await page.cdp.send("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
+        fs.writeFileSync(path.join(readmeShots,"mobile-nasa-key.png"),Buffer.from(readmeCapture.data,"base64"));
+
+        await evaluate(`(()=>{
+          document.querySelector('[data-nav="info"]').click();
+          if(document.documentElement.dataset.theme!=="dark") document.getElementById("themeToggle").click();
+          document.getElementById("panelInfo").scrollTop=0;
+        })()`,page.cdp);
+        await new Promise(resolve=>setTimeout(resolve,250));
+        readmeCapture=await page.cdp.send("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
+        fs.writeFileSync(path.join(readmeShots,"mobile-info-dark-mode.png"),Buffer.from(readmeCapture.data,"base64"));
+
+        await evaluate(`(()=>{
+          if(document.documentElement.dataset.theme!=="light") document.getElementById("themeToggle").click();
+          document.querySelector('[data-nav="map"]').click();
+        })()`,page.cdp);
+      }
+      if(test.slug==="mobile-small"){
+        smallMapShot=mapShot;
+        await evaluate("document.getElementById('openDetections').click()",page.cdp);
+        await waitFor("document.body.dataset.view==='overview'",page.cdp);
+        const extremeState=await evaluate(`({
+          horizontal:document.documentElement.scrollWidth>document.documentElement.clientWidth+1,
+          status:document.getElementById("airQualityStatus").textContent,
+          city:document.getElementById("airQualityCity").textContent
+        })`,page.cdp);
+        assert(
+          "petit mobile, ville longue et catégorie extrême lisibles",
+          !extremeState.horizontal &&
+            extremeState.status==="Extrêmement mauvaise · EAQI 101" &&
+            extremeState.city==="Saint-Remy-en-Bouzemont-Saint-Genest-et-Isson",
+          JSON.stringify(extremeState)
+        );
+        await evaluate(`document.getElementById("airQualityStatus").scrollIntoView({block:"center"});
+          new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`,page.cdp);
+        const overviewShot=path.join(artifacts,"overview-mobile-small-extreme.png");
+        const overviewCapture=await page.cdp.send("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
+        fs.writeFileSync(overviewShot,Buffer.from(overviewCapture.data,"base64"));
+        responsiveShots["overview-mobile-small-extreme"]=overviewShot;
+      }
       await openFirstDetail(page.cdp);
       await localityState(page.cdp);
       const geometry=await evaluate(`(()=>{
@@ -1647,7 +1885,9 @@ async function run(){
     assert(
       "CSV FIRMS invalide signalé comme indisponible",
       await evaluate(`document.getElementById("feed").textContent.includes("indisponibles") &&
-        !document.getElementById("feed").textContent.includes("Aucune détection")`,page.cdp)
+        !document.getElementById("feed").textContent.includes("Aucune détection") &&
+        document.getElementById("nearest").textContent==="—" &&
+        document.getElementById("smokeRisk").textContent==="Indisponible"`,page.cdp)
     );
     await closePage(page,port);
 
@@ -1672,11 +1912,233 @@ async function run(){
     );
     await closePage(page,port);
 
+    page=await openPage(baseUrl,port,scenario({
+      firms:{
+        mode:"success",
+        sequence:[
+          {mode:"success",empty:true},
+          {mode:"error",status:503}
+        ]
+      }
+    }));
+    await waitFor(`document.getElementById("nearest").textContent==="Aucune" &&
+      document.getElementById("smokeRisk").textContent==="Aucun signal"`,page.cdp);
+    await evaluate("document.getElementById('refreshTop').click()",page.cdp);
+    await waitFor(`window.__egxCounts.firms===8 &&
+      document.getElementById("mapStage").getAttribute("aria-busy")==="false"`,page.cdp);
+    assert(
+      "échec après un résultat vide ne présente pas un état actuel rassurant",
+      await evaluate(`document.getElementById("nearest").textContent==="—" &&
+        document.getElementById("smokeRisk").textContent==="Indisponible" &&
+        document.getElementById("sourceStatusText").textContent.includes("Dernières données") &&
+        document.getElementById("smokeExplanation").textContent.includes("actualisation a échoué")`,page.cdp)
+    );
+    await closePage(page,port);
+
+    const airQualityLimits=[
+      [0,"Bonne"],[20,"Bonne"],[21,"Correcte"],[40,"Correcte"],
+      [41,"Modérée"],[60,"Modérée"],[61,"Mauvaise"],[80,"Mauvaise"],
+      [81,"Très mauvaise"],[100,"Très mauvaise"],[101,"Extrêmement mauvaise"]
+    ];
+    for(const [value,category] of airQualityLimits){
+      page=await openPage(baseUrl,port,scenario({
+        airQuality:{
+          mode:"success",
+          value,
+          components:{pm25:value,pm10:Math.max(0,value-1),no2:2,o3:1,so2:0}
+        }
+      }));
+      await waitFor(`document.getElementById("airQualityStatus").textContent.includes("EAQI ${value}")`,page.cdp);
+      const air=await airQualityState(page.cdp);
+      assert(
+        `limite EAQI ${value} classée ${category}`,
+        air.status===`${category} · EAQI ${value}` &&
+          air.label.includes(category) &&
+          air.activeSegments===["Bonne","Correcte","Modérée","Mauvaise","Très mauvaise","Extrêmement mauvaise"].indexOf(category)+1,
+        JSON.stringify(air)
+      );
+      await closePage(page,port);
+    }
+
+    page=await openPage(baseUrl,port,scenario({
+      airQuality:{
+        mode:"success",
+        value:34,
+        components:{pm25:34,pm10:12,no2:8,o3:7,so2:4}
+      }
+    }));
+    await waitFor("document.getElementById('airQualityStatus').textContent.includes('EAQI 34')",page.cdp);
+    let air=await airQualityState(page.cdp);
+    assert("polluant déterminant unique",air.pollutant==="Polluant déterminant : PM2,5",air.pollutant);
+    assert(
+      "échelle colorée identifiée Air, graduelle et accessible",
+      air.badge==="Air" &&
+        air.level===2 &&
+        air.activeSegments===2 &&
+        air.currentSegments===1 &&
+        air.label.includes("Qualité de l’air estimée : Correcte") &&
+        air.label.includes("indice européen EAQI 34"),
+      JSON.stringify(air)
+    );
+    assert("heure de récupération AQI affichée",air.retrieved.startsWith("Récupérée à "),air.retrieved);
+    assert(
+      "requête Air Quality conforme",
+      await evaluate(`(()=>{
+        const url=new URL(window.__egxCounts.airQualityUrls[0]);
+        return url.origin==="https://air-quality-api.open-meteo.com" &&
+          url.pathname==="/v1/air-quality" &&
+          url.searchParams.get("current")==="european_aqi,european_aqi_pm2_5,european_aqi_pm10,european_aqi_nitrogen_dioxide,european_aqi_ozone,european_aqi_sulphur_dioxide" &&
+          url.searchParams.get("domains")==="auto" &&
+          url.searchParams.get("timezone")==="auto" &&
+          url.searchParams.get("timeformat")==="unixtime";
+      })()`,page.cdp)
+    );
+    await closePage(page,port);
+
+    page=await openPage(baseUrl,port,scenario({
+      airQuality:{
+        mode:"success",
+        value:45,
+        components:{pm25:45,pm10:45,no2:10,o3:8,so2:2}
+      }
+    }));
+    await waitFor("document.getElementById('airQualityStatus').textContent.includes('EAQI 45')",page.cdp);
+    air=await airQualityState(page.cdp);
+    assert("polluants ex æquo affichés",air.pollutant==="Polluants déterminants : PM2,5 et PM10",air.pollutant);
+    await closePage(page,port);
+
+    page=await openPage(baseUrl,port,scenario({
+      airQuality:{
+        mode:"success",
+        value:0,
+        components:{pm25:0,pm10:0,no2:0,o3:0,so2:0}
+      }
+    }));
+    await waitFor("document.getElementById('airQualityStatus').textContent.includes('EAQI 0')",page.cdp);
+    air=await airQualityState(page.cdp);
+    assert("zéro sans polluant artificiellement déterminant",air.pollutant==="Aucun polluant déterminant",air.pollutant);
+    await closePage(page,port);
+
+    page=await openPage(baseUrl,port,scenario({
+      airQuality:{
+        mode:"success",
+        value:28,
+        components:{pm25:undefined,pm10:28,no2:9,o3:8,so2:2}
+      }
+    }));
+    await waitFor("document.getElementById('airQualityStatus').textContent.includes('EAQI 28')",page.cdp);
+    air=await airQualityState(page.cdp);
+    assert("composant AQI manquant toléré",air.pollutant==="Polluant déterminant : PM10",air.pollutant);
+    await closePage(page,port);
+
+    const airQualityFailures=[
+      {name:"valeur AQI invalide",airQuality:{mode:"success",value:"invalide",components:{pm25:4}}},
+      {name:"réponse AQI incomplète",airQuality:{mode:"incomplete",body:{current:{european_aqi:20}}}},
+      {name:"JSON AQI invalide",airQuality:{mode:"invalid-json"}},
+      {name:"HTTP AQI 400",airQuality:{mode:"error",status:400}},
+      {name:"HTTP AQI 503",airQuality:{mode:"error",status:503}},
+      {name:"réseau AQI indisponible",airQuality:{mode:"network"}},
+      {name:"timeout AQI",airQuality:{mode:"timeout"},accelerateAirQualityTimeout:true}
+    ];
+    for(const failure of airQualityFailures){
+      page=await openPage(baseUrl,port,scenario(failure));
+      await waitFor(`document.getElementById("airQualityStatus").textContent==="Indisponible" &&
+        document.querySelectorAll(".feed-item").length===1`,page.cdp);
+      air=await airQualityState(page.cdp);
+      assert(
+        `${failure.name} isolé de FIRMS`,
+        air.status==="Indisponible" && !air.banner.includes("qualité de l’air"),
+        JSON.stringify(air)
+      );
+      await closePage(page,port);
+    }
+
+    page=await openPage(baseUrl,port,scenario({
+      fireGroups:[],
+      airQuality:{
+        mode:"success",
+        value:34,
+        components:{pm25:34,pm10:20,no2:12,o3:8,so2:3}
+      }
+    }));
+    await waitFor(`document.getElementById("count").textContent.includes("0 détection") &&
+      document.getElementById("airQualityStatus").textContent.includes("EAQI 34")`,page.cdp);
+    assert(
+      "succès AQI avec zéro détection",
+      await evaluate(`document.getElementById("airQualityStatus").textContent.includes("EAQI 34") &&
+        document.getElementById("headerError").textContent===""`,page.cdp)
+    );
+    assert(
+      "résultat FIRMS vide présenté comme un état normal",
+      await evaluate(`document.getElementById("nearest").textContent==="Aucune" &&
+        document.getElementById("count").textContent==="0 détection NASA" &&
+        document.getElementById("smokeRisk").textContent==="Aucun signal" &&
+        document.getElementById("overviewSmokeRisk").textContent==="Aucun signal" &&
+        document.getElementById("smokeStatus").textContent==="Aucun signal" &&
+        document.querySelector("#riskBadge .material-symbols-outlined").textContent==="search_off"`,page.cdp)
+    );
+    assert(
+      "état sans détection conserve une mise en garde explicite",
+      await evaluate(`document.getElementById("smokeExplanation").textContent.includes(
+        "ne garantit pas l’absence d’incendie ou de fumée"
+      )`,page.cdp)
+    );
+    const emptyStateShot=path.join(artifacts,"empty-detections-mobile.png");
+    const emptyStateCapture=await page.cdp.send("Page.captureScreenshot",{
+      format:"png",
+      captureBeyondViewport:false
+    });
+    fs.writeFileSync(emptyStateShot,Buffer.from(emptyStateCapture.data,"base64"));
+    responsiveShots["empty-detections-mobile"]=emptyStateShot;
+    await closePage(page,port);
+
+    page=await openPage(baseUrl,port,scenario({
+      airQuality:{
+        mode:"success",
+        sequence:[
+          {mode:"success",value:92,components:{pm25:92,pm10:40,no2:20,o3:10,so2:5},delay:700,ignoreAbort:true},
+          {mode:"success",value:10,components:{pm25:10,pm10:5,no2:3,o3:2,so2:1}}
+        ]
+      }
+    }));
+    await waitFor("window.__egxCounts.airQuality===1",page.cdp);
+    await evaluate(`document.querySelector('[data-nav="settings"]').click();
+      document.getElementById("cityQuery").value="Tokyo";
+      document.getElementById("searchCity").click()`,page.cdp);
+    await waitFor("document.querySelectorAll('#cityResults option').length===1",page.cdp);
+    await evaluate(`document.getElementById("cityResults").value="0";
+      document.getElementById("applyCity").click()`,page.cdp);
+    await waitFor(`window.__egxCounts.airQuality===2 &&
+      document.getElementById("airQualityStatus").textContent==="Bonne · EAQI 10"`,page.cdp);
+    await new Promise(resolve=>setTimeout(resolve,900));
+    air=await airQualityState(page.cdp);
+    assert("réponse AQI tardive ignorée après changement de ville",air.status==="Bonne · EAQI 10" && air.city==="Lyon",JSON.stringify(air));
+    await closePage(page,port);
+
+    page=await openPage(baseUrl,port,scenario({
+      airQuality:{mode:"timeout"}
+    }));
+    await waitFor(`window.__egxCounts.airQuality===1 &&
+      window.__egxCounts.airQualityActive===1 &&
+      document.querySelectorAll(".feed-item").length===1 &&
+      document.getElementById("mapStage").getAttribute("aria-busy")==="false"`,page.cdp);
+    await evaluate(`document.querySelector('[data-nav="settings"]').click();
+      document.getElementById("clearKey").click()`,page.cdp);
+    await waitFor("window.__egxCounts.airQualityAborts===1",page.cdp);
+    air=await airQualityState(page.cdp);
+    assert("effacement de clé annule l’appel AQI",air.aborts===1 && air.status==="Indisponible",JSON.stringify(air));
+    await closePage(page,port);
+
     page=await openPage(baseUrl,port,scenario({noKey:true}));
     assert(
       "onboarding automatique sans clé",
       await waitFor(`document.getElementById("onboardingDialog").classList.contains("open") &&
         document.getElementById("appShell").inert`,page.cdp)
+    );
+    assert(
+      "absence de clé reste distincte d’un résultat FIRMS vide",
+      await evaluate(`document.getElementById("nearest").textContent==="—" &&
+        document.getElementById("smokeRisk").textContent==="Indisponible"`,page.cdp)
     );
     assert(
       "onboarding accessible sans clavier mobile automatique",
@@ -1686,8 +2148,25 @@ async function run(){
         return dialog.getAttribute("role")==="dialog" &&
           dialog.getAttribute("aria-modal")==="true" &&
           dialog.getAttribute("aria-hidden")==="false" &&
-          input.type==="password" &&
+          input.type==="text" &&
+          input.autocomplete==="one-time-code" &&
+          input.classList.contains("is-masked") &&
           document.activeElement!==input;
+      })()`,page.cdp)
+    );
+    assert(
+      "clé API masquée sans champ mot de passe navigateur",
+      await evaluate(`(()=>{
+        const input=document.getElementById("onboardingMapKey");
+        const toggle=document.getElementById("toggleOnboardingKey");
+        toggle.click();
+        const revealed=input.type==="text" &&
+          !input.classList.contains("is-masked") &&
+          toggle.getAttribute("aria-label")==="Masquer la clé";
+        toggle.click();
+        return revealed &&
+          input.classList.contains("is-masked") &&
+          toggle.getAttribute("aria-label")==="Afficher la clé";
       })()`,page.cdp)
     );
     assert(
@@ -1699,7 +2178,10 @@ async function run(){
           link.rel.includes("noopener");
       })()`,page.cdp)
     );
-    assert("aucun appel FIRMS avant validation",await evaluate("window.__egxCounts.firms===0",page.cdp));
+    assert(
+      "aucun appel FIRMS ou AQI avant validation",
+      await evaluate("window.__egxCounts.firms===0 && window.__egxCounts.airQuality===0",page.cdp)
+    );
     await evaluate(`document.getElementById("onboardingBackdrop").dispatchEvent(
       new MouseEvent("click",{bubbles:true})
     )`,page.cdp);
@@ -1828,7 +2310,24 @@ async function run(){
     assert(
       "réponse FIRMS valide sans détection accepte la clé",
       await waitFor(`localStorage.getItem("egx_incendies_firms_key")==="TEST_EMPTY" &&
-        document.getElementById("feed").textContent.includes("Aucune détection")`,page.cdp)
+        document.getElementById("feed").textContent.includes("Aucune détection") &&
+        document.getElementById("nearest").textContent==="Aucune" &&
+        document.getElementById("smokeRisk").textContent==="Aucun signal"`,page.cdp)
+    );
+    await closePage(page,port);
+
+    page=await openPage(baseUrl,port,scenario({
+      noKey:true,
+      airQuality:{mode:"error",status:503}
+    }));
+    await waitFor("document.getElementById('onboardingDialog').classList.contains('open')",page.cdp);
+    await evaluate(`document.getElementById("onboardingMapKey").value="TEST_AQI_INDEPENDENT";
+      document.getElementById("onboardingSave").click()`,page.cdp);
+    assert(
+      "clé candidate enregistrée indépendamment du résultat AQI",
+      await waitFor(`localStorage.getItem("egx_incendies_firms_key")==="TEST_AQI_INDEPENDENT" &&
+        document.getElementById("airQualityStatus").textContent==="Indisponible" &&
+        !document.getElementById("onboardingDialog").classList.contains("open")`,page.cdp)
     );
     await closePage(page,port);
 
