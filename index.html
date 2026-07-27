@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous">
-  <link rel="stylesheet" href="./style.css?v=6">
+  <link rel="stylesheet" href="./style.css?v=7">
 </head>
 
 <body data-view="map">
@@ -26,9 +26,9 @@
         <span>EGX Incendies</span>
       </button>
       <div class="topbar-actions">
-        <span class="auto-label">Auto : 10 min</span>
-        <button class="icon-button refresh-button" id="refreshTop" aria-label="Actualiser les données" title="Actualiser">
+        <button class="refresh-button" id="refreshTop" aria-label="Actualiser la carte" title="Actualiser la carte">
           <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
+          <span class="refresh-button-label">Actualiser</span>
         </button>
         <button class="icon-button mobile-only" id="settingsBtn" aria-label="Ouvrir la configuration">
           <span class="material-symbols-outlined" aria-hidden="true">tune</span>
@@ -370,10 +370,10 @@
             <span class="risk-badge" id="detailRisk">—</span>
           </div>
           <section class="smoke-forecast" aria-labelledby="detailSmokeTitle">
-            <p class="eyebrow" id="detailSmokeTitle">Direction possible des fumées · 12 h</p>
+            <p class="eyebrow" id="detailSmokeTitle">Direction possible des fumées</p>
             <strong id="detailSmokeSummary" role="status" aria-live="polite">Prévision du vent en attente…</strong>
-            <p class="smoke-forecast-meta" id="detailSmokeMeta">Analyse aux échéances 3 h, 6 h et 12 h.</p>
-            <p class="smoke-forecast-note">Estimation selon les vents prévus — ce tracé peut évoluer.</p>
+            <p class="smoke-forecast-meta" id="detailSmokeMeta">Analyse des vents prévus disponibles.</p>
+            <p class="smoke-forecast-note">Direction estimée selon les vents prévus — sans échéance précise, ce tracé peut évoluer.</p>
           </section>
           <section class="localities-forecast" aria-labelledby="detailLocalitiesTitle">
             <h4 id="detailLocalitiesTitle">Localités potentiellement dans l’axe</h4>
@@ -407,6 +407,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"></script>
-  <script src="./app.js?v=6"></script>
+  <script src="./app.js?v=7"></script>
 </body>
 </html>

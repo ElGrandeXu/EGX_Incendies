@@ -10,9 +10,8 @@ EGX Incendies montre les détections thermiques par satellite autour de la ville
 2. Ouvrez [EGX Incendies](https://elgrandexu.github.io/EGX_Incendies/).
 3. Ouvrez l’onglet **Configuration**.
 4. Dans **Clé NASA FIRMS**, collez la clé, puis touchez **Enregistrer**.
-5. Rouvrez **Configuration** si l’application affiche **Carte**. Dans **Zone cible**, saisissez votre ville, touchez **Rechercher**, choisissez le bon résultat, puis touchez **Utiliser cette ville**.
-6. Choisissez le **Rayon de détection** et l’**Historique des données** : 24, 48 ou 72 heures.
-7. Touchez **Lancer la carte**. L’application lance la surveillance et ouvre **Carte**.
+5. Rouvrez **Configuration** si l’application affiche **Carte**. Dans **Zone cible**, saisissez votre ville, touchez **Rechercher**, choisissez le bon résultat, puis touchez **Utiliser cette ville**. La carte s’ouvre et s’actualise automatiquement.
+6. Si besoin, revenez dans **Configuration** pour choisir le **Rayon de détection**, l’**Historique des données** — 24, 48 ou 72 heures — et le mode d’affichage. Chaque changement est appliqué directement.
 
 La clé reste dans le navigateur de cet appareil. Elle sert à interroger NASA FIRMS et n’est pas envoyée à un serveur EGX.
 
@@ -28,7 +27,7 @@ La clé reste dans le navigateur de cet appareil. Elle sert à interroger NASA F
 - la distance et l’ancienneté de la détection la plus proche ;
 - le vent actuel ;
 - un niveau de risque pédagogique lié aux fumées ;
-- les trajectoires potentielles des fumées à `3 h`, `6 h` et `12 h` sur la carte ;
+- les directions possibles des fumées, représentées par des flèches sur la carte ;
 - le détail de chaque foyer probable ;
 - les localités potentiellement situées dans l’axe estimé, uniquement dans le détail ;
 - un thème clair et un thème sombre.
@@ -68,8 +67,8 @@ Les captures montrent la version mobile actuelle. La clé NASA n’apparaît dan
 
 - Consultez les détections et les foyers probables.
 - Lisez la distance la plus proche, le vent et le risque lié aux fumées.
-- Suivez les corridors neutres, les repères `3 h`, `6 h`, `12 h` et les flèches pour lire la direction potentielle des fumées.
-- Touchez un foyer, son corridor, une flèche ou un repère horaire pour ouvrir ses détails.
+- Suivez les corridors neutres et les flèches pour lire la direction potentielle des fumées, sans échéance temporelle précise.
+- Touchez un foyer, son corridor ou une flèche pour ouvrir ses détails.
 - Dans le détail, consultez la tendance des vents et les localités potentiellement dans l’axe.
 - Touchez **Foyers probables** pour consulter la liste.
 

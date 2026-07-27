@@ -193,15 +193,6 @@ select:disabled {
   gap: 8px;
 }
 
-.auto-label {
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-high);
-  font-size: 12px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
 .icon-button,
 .map-control,
 .field-icon {
@@ -218,10 +209,26 @@ select:disabled {
 }
 
 .refresh-button {
-  width: var(--control-height);
-  height: var(--control-height);
-  border-color: transparent;
-  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 104px;
+  height: 44px;
+  flex: 0 0 auto;
+  padding: 0 10px;
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-md);
+  background: var(--primary);
+  box-shadow: 0 2px 8px rgba(25, 28, 30, .16);
+  color: var(--on-primary);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.refresh-button .material-symbols-outlined {
+  font-size: 20px;
 }
 
 #settingsBtn { display: none; }
@@ -277,17 +284,14 @@ html[data-theme="dark"] #detailMap .leaflet-tile-pane {
 
 .main-smoke-corridor,
 .main-smoke-direction-line,
-.main-smoke-horizon-label,
 .main-smoke-direction-arrow {
   cursor: pointer;
 }
 
-.main-smoke-horizon-label,
 .main-smoke-direction-arrow {
   pointer-events: auto;
 }
 
-html[data-theme="dark"] .main-smoke-horizon-label,
 html[data-theme="dark"] .main-smoke-direction-arrow {
   border-color: rgba(230,241,245,.42);
   background: #41545c;
@@ -1484,20 +1488,6 @@ html[data-theme="dark"] .leaflet-tooltip.locality-map-label {
   color: #edf7f8;
 }
 
-.smoke-horizon-label {
-  display: grid;
-  place-items: center;
-  width: 30px !important;
-  height: 22px !important;
-  margin: -11px 0 0 -15px !important;
-  border: 1px solid rgba(255,255,255,.7);
-  border-radius: 999px;
-  background: #52666f;
-  box-shadow: 0 2px 6px rgba(0,0,0,.18);
-  color: #fff;
-  font: 700 10px/1 Inter, sans-serif;
-}
-
 .smoke-direction-arrow {
   display: grid;
   place-items: center;
@@ -1561,7 +1551,8 @@ html[data-theme="dark"] .leaflet-tooltip.locality-map-label {
   }
 
   .primary-button:hover,
-  .search-field .small-button:hover {
+  .search-field .small-button:hover,
+  .refresh-button:hover {
     background: color-mix(in srgb, var(--primary) 88%, var(--surface));
   }
 
@@ -1757,7 +1748,7 @@ select:focus {
 }
 
 @media (max-width: 350px) {
-  .auto-label { display: none; }
+  .brand > span:last-child { display: none; }
 
   .map-summary .eyebrow {
     font-size: 9px;

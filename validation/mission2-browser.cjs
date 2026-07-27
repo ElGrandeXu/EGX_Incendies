@@ -522,7 +522,11 @@ async function localityState(cdp,timeout=10000){
     feedItems:document.querySelectorAll(".feed-item").length,
     technicalElements:document.querySelectorAll("#detailDetectionCount,#detailDetections,.detail-detections,.detection-card").length,
     limit:document.getElementById("detailLocalitiesLimit").textContent,
-    smoke:document.getElementById("detailSmokeSummary").textContent
+    smoke:document.getElementById("detailSmokeSummary").textContent,
+    smokeTitle:document.getElementById("detailSmokeTitle").textContent,
+    smokeMeta:document.getElementById("detailSmokeMeta").textContent,
+    smokeArrows:document.querySelectorAll("#detailMap .smoke-direction-arrow").length,
+    smokeTimeLabels:document.querySelectorAll("#detailMap .smoke-horizon-label").length
   })`,cdp);
 }
 
@@ -530,8 +534,9 @@ async function mainSmokeState(cdp){
   return evaluate(`({
     corridors:document.querySelectorAll(".main-smoke-corridor:not(.main-smoke-weak)").length,
     weak:document.querySelectorAll(".main-smoke-weak").length,
-    labels:[...document.querySelectorAll(".main-smoke-horizon-label")].map(node=>node.textContent.trim()),
     arrows:document.querySelectorAll(".main-smoke-direction-arrow").length,
+    arrowSymbols:[...document.querySelectorAll(".main-smoke-direction-arrow")].map(node=>node.textContent.trim()),
+    timeLabels:document.querySelectorAll(".main-smoke-horizon-label").length,
     directions:document.querySelectorAll(".main-smoke-direction-line").length,
     weather:window.__egxCounts.weather,
     weatherMaxActive:window.__egxCounts.weatherMaxActive,
@@ -547,7 +552,7 @@ async function run(){
   const server=staticServer();
   await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
   const baseUrl=`http://127.0.0.1:${server.address().port}/`;
-  for(const resource of ["","style.css?v=6","app.js?v=6"]){
+  for(const resource of ["","style.css?v=7","app.js?v=7"]){
     const response=await fetch(`${baseUrl}${resource}`);
     assert(`HTTP 200 ${resource||"/"}`,response.status===200,String(response.status));
   }
@@ -583,6 +588,16 @@ async function run(){
   assert(
     "actualisation automatique 10 min conservée",
     /setInterval\([\s\S]*10\*60\*1000/.test(source)
+  );
+  assert(
+    "libellé automatique retiré de l’en-tête",
+    !html.includes("Auto : 10 min") && !html.includes("auto-label")
+  );
+  assert(
+    "repères temporels retirés des trajectoires visibles",
+    !source.includes('className:"smoke-horizon-label') &&
+      !html.includes("Direction possible des fumées · 12 h") &&
+      !html.includes("Analyse aux échéances 3 h, 6 h et 12 h")
   );
   const profile=fs.mkdtempSync(path.join(os.tmpdir(),"egx-chrome-m2-"));
   const chrome=spawn(CHROME,[
@@ -628,6 +643,17 @@ async function run(){
     let page=await openPage(baseUrl,port,scenario({
       overpass:{mode:"success",elements:dense}
     }));
+    assert(
+      "actualisation de la carte explicite sans agrandir l’en-tête",
+      await evaluate(`(()=>{
+        const button=document.getElementById("refreshTop");
+        const style=getComputedStyle(button);
+        return button.textContent.includes("Actualiser") &&
+          button.getAttribute("aria-label")==="Actualiser la carte" &&
+          button.getBoundingClientRect().height<=48 &&
+          style.backgroundColor!=="rgba(0, 0, 0, 0)";
+      })()`,page.cdp)
+    );
     await openFirstDetail(page.cdp);
     assert(
       "clé NASA existante conservée",
@@ -649,9 +675,16 @@ async function run(){
       await evaluate("document.querySelector('.city-source').textContent.includes('OpenStreetMap')",page.cdp)
     );
     let state=await localityState(page.cdp);
-    assert("ville surveillée 0–3 h",state.watched.includes("3 prochaines heures"),state.watched);
+    assert("ville surveillée au début du tracé",state.watched.includes("début du tracé"),state.watched);
     assert("liste dense limitée à neuf",state.names.length===9,String(state.names.length));
-    assert("trois localités maximum par horizon",state.headings.length===3 && state.names.length===9,state.headings.join("|"));
+    assert("trois localités maximum par partie du tracé",state.headings.length===3 && state.names.length===9,state.headings.join("|"));
+    assert(
+      "détail sans promesse temporelle et avec trois flèches",
+      state.smokeArrows===3 &&
+        state.smokeTimeLabels===0 &&
+        !/(?:3|6|12) h/.test(`${state.smokeTitle} ${state.smokeMeta} ${state.headings.join(" ")}`),
+      JSON.stringify(state)
+    );
     assert("priorité ville surveillée",state.names[0]==="Bordeaux",state.names.join("|"));
     assert("objet hors corridor exclu",!state.names.includes("Hors du corridor"),state.names.join("|"));
     assert("doublon OSM fusionné",state.names.filter(name=>name==="Doublon").length<=1,state.names.join("|"));
@@ -701,15 +734,19 @@ async function run(){
       detectionsPerGroup:15,
       viewport:{width:390,height:844,deviceScaleFactor:1,mobile:true}
     }));
-    await waitFor("document.querySelectorAll('.main-smoke-direction-arrow').length===1",page.cdp);
+    await waitFor("document.querySelectorAll('.main-smoke-direction-arrow').length===3",page.cdp);
     let mainState=await mainSmokeState(page.cdp);
-    assert("carte principale corridor 3/6/12 h",mainState.corridors===3,String(mainState.corridors));
+    assert("carte principale avec trois segments",mainState.corridors===3,String(mainState.corridors));
     assert(
-      "carte principale repères 3 h 6 h 12 h",
-      ["3 h","6 h","12 h"].every(label=>mainState.labels.includes(label)),
-      mainState.labels.join("|")
+      "carte principale sans repère horaire",
+      mainState.timeLabels===0,
+      String(mainState.timeLabels)
     );
-    assert("carte principale flèche directionnelle",mainState.arrows===1,String(mainState.arrows));
+    assert(
+      "carte principale avec une flèche par segment",
+      mainState.arrows===3 && mainState.arrowSymbols.every(symbol=>symbol==="↑"),
+      JSON.stringify(mainState)
+    );
     assert("météo groupée au seul foyer significatif",mainState.weather===2,String(mainState.weather));
     assert(
       "corridor sous les points et au-dessus du fond",
@@ -741,8 +778,7 @@ async function run(){
 
     for(const selector of [
       ".main-smoke-corridor",
-      ".main-smoke-direction-arrow",
-      ".main-smoke-horizon-label"
+      ".main-smoke-direction-arrow"
     ]){
       await evaluate(`document.querySelector(${JSON.stringify(selector)}).dispatchEvent(new MouseEvent("click",{bubbles:true}))`,page.cdp);
       assert(
@@ -764,7 +800,7 @@ async function run(){
       })()`,page.cdp);
       assert(
         `trajectoire indépendante du mode ${mode}`,
-        await evaluate("document.querySelectorAll('.main-smoke-direction-arrow').length===1",page.cdp)
+        await evaluate("document.querySelectorAll('.main-smoke-direction-arrow').length===3",page.cdp)
       );
     }
 
@@ -787,13 +823,13 @@ async function run(){
       radius.dispatchEvent(new Event("change",{bubbles:true}));
     })()`,page.cdp);
     await waitFor(`window.__egxCounts.firms>${firmsBefore}`,page.cdp);
-    await waitFor("document.querySelectorAll('.main-smoke-direction-arrow').length===1",page.cdp);
+    await waitFor("document.querySelectorAll('.main-smoke-direction-arrow').length===3",page.cdp);
     assert("changement de rayon actualise la trajectoire",true);
 
     firmsBefore=await evaluate("window.__egxCounts.firms",page.cdp);
     await evaluate("document.querySelector('[data-hours=\"24\"]').click()",page.cdp);
     await waitFor(`window.__egxCounts.firms>${firmsBefore}`,page.cdp);
-    await waitFor("document.querySelectorAll('.main-smoke-direction-arrow').length===1",page.cdp);
+    await waitFor("document.querySelectorAll('.main-smoke-direction-arrow').length===3",page.cdp);
     assert("changement de période actualise la trajectoire",true);
 
     await evaluate(`(()=>{
@@ -803,6 +839,11 @@ async function run(){
     })()`,page.cdp);
     await waitFor("!document.getElementById('cityResults').hidden",page.cdp);
     await evaluate("document.getElementById('applyCity').click()",page.cdp);
+    assert(
+      "utiliser cette ville ouvre automatiquement la carte",
+      await waitFor(`document.body.dataset.view==="map" &&
+        document.getElementById("panelOverview").classList.contains("active")`,page.cdp)
+    );
     await waitFor("document.querySelectorAll('.feed-item').length===0",page.cdp);
     assert(
       "changement de ville retire les trajectoires invalides",
@@ -816,7 +857,7 @@ async function run(){
     }));
     await waitFor("document.querySelectorAll('.main-smoke-weak').length===1",page.cdp);
     mainState=await mainSmokeState(page.cdp);
-    assert("vent faible sans fausse direction",mainState.weak===1 && mainState.arrows===0 && mainState.labels.length===0,JSON.stringify(mainState));
+    assert("vent faible sans fausse direction",mainState.weak===1 && mainState.arrows===0 && mainState.timeLabels===0,JSON.stringify(mainState));
     await closePage(page,port);
 
     const unavailableGroup={lat:45.22,lon:0.18};
@@ -829,8 +870,8 @@ async function run(){
     await waitFor("window.__egxCounts.weather===4",page.cdp);
     await waitFor("window.__egxCounts.weatherActive===0",page.cdp);
     mainState=await mainSmokeState(page.cdp);
-    assert("succès météo partiel foyer par foyer",mainState.arrows===1 && mainState.corridors===3,JSON.stringify(mainState));
-    assert("vent tournant conservé sur la carte principale",mainState.arrows===1,JSON.stringify(mainState));
+    assert("succès météo partiel foyer par foyer",mainState.arrows===3 && mainState.corridors===3,JSON.stringify(mainState));
+    assert("vent tournant conservé sur la carte principale",mainState.arrows===3,JSON.stringify(mainState));
     await closePage(page,port);
 
     page=await openPage(baseUrl,port,scenario({
@@ -839,7 +880,7 @@ async function run(){
     }));
     await waitFor("document.querySelectorAll('.main-smoke-direction-arrow').length===1",page.cdp);
     mainState=await mainSmokeState(page.cdp);
-    assert("météo horaire partielle rend le segment disponible",mainState.corridors===1 && mainState.labels.includes("3 h"),JSON.stringify(mainState));
+    assert("météo horaire partielle rend le segment disponible",mainState.corridors===1 && mainState.arrows===1 && mainState.timeLabels===0,JSON.stringify(mainState));
     await closePage(page,port);
 
     const manyGroups=Array.from({length:20},(_,index)=>point(
@@ -856,9 +897,13 @@ async function run(){
     }));
     await waitFor("window.__egxCounts.weather===2 && window.__egxCounts.weatherActive===0",page.cdp,15000);
     await evaluate("document.getElementById('zoomIn').click()",page.cdp);
-    await waitFor("document.querySelectorAll('.main-smoke-direction-arrow').length===16",page.cdp);
+    await waitFor("document.querySelectorAll('.main-smoke-corridor:not(.main-smoke-weak)').length===48",page.cdp);
     mainState=await mainSmokeState(page.cdp);
-    assert("grand nombre reprend la limite overlays 16",mainState.arrows===16,JSON.stringify(mainState));
+    assert(
+      "grand nombre reprend la limite overlays 16 sans surcharger les flèches",
+      mainState.corridors===48 && mainState.directions===16 && mainState.arrows>=16 && mainState.arrows<=48,
+      JSON.stringify(mainState)
+    );
     assert("prévisions des 16 foyers groupées en un appel",mainState.weather===2,String(mainState.weather));
     measurements.largeGroupRenderMs=Date.now()-manyStart;
     measurements.weatherCallsFor16Groups=mainState.weather;
@@ -878,9 +923,13 @@ async function run(){
     }));
     await waitFor("window.__egxCounts.weather===18 && window.__egxCounts.weatherActive===0",page.cdp,15000);
     await evaluate("document.getElementById('zoomIn').click()",page.cdp);
-    await waitFor("document.querySelectorAll('.main-smoke-direction-arrow').length===16",page.cdp);
+    await waitFor("document.querySelectorAll('.main-smoke-corridor:not(.main-smoke-weak)').length===48",page.cdp);
     mainState=await mainSmokeState(page.cdp);
-    assert("repli météo individuel après échec groupé",mainState.arrows===16,JSON.stringify(mainState));
+    assert(
+      "repli météo individuel après échec groupé",
+      mainState.corridors===48 && mainState.directions===16 && mainState.arrows>=16 && mainState.arrows<=48,
+      JSON.stringify(mainState)
+    );
     assert(
       "concurrence du repli météo limitée à quatre",
       mainState.weatherMaxActive<=4 && mainState.weatherMaxActive>=3,
@@ -895,14 +944,14 @@ async function run(){
     await waitFor("window.__egxCounts.weather===2",page.cdp,10000);
     await evaluate("document.getElementById('refreshTop').click()",page.cdp);
     await waitFor("window.__egxCounts.weatherAborts>=1",page.cdp);
-    await waitFor("document.querySelectorAll('.main-smoke-direction-arrow').length===1",page.cdp,15000);
+    await waitFor("document.querySelectorAll('.main-smoke-direction-arrow').length===3",page.cdp,15000);
     mainState=await mainSmokeState(page.cdp);
     assert("actualisation annule l’ancienne météo foyer",mainState.weatherAborts>=1,JSON.stringify(mainState));
     await closePage(page,port);
 
     for(const test of [
-      {name:"ville surveillée 3–6 h",location:{name:"Bordeaux",...point(45)},text:"entre 3 et 6 heures"},
-      {name:"ville surveillée 6–12 h",location:{name:"Bordeaux",...point(90)},text:"entre 6 et 12 heures"},
+      {name:"ville surveillée dans la suite du tracé",location:{name:"Bordeaux",...point(45)},text:"suite du tracé"},
+      {name:"ville surveillée vers la fin du tracé",location:{name:"Bordeaux",...point(90)},text:"fin du tracé"},
       {name:"ville surveillée hors corridor",location:{name:"Bordeaux",...point(0,25)},text:"ne semble pas"}
     ]){
       page=await openPage(baseUrl,port,scenario({location:test.location}));
@@ -1245,9 +1294,15 @@ async function run(){
       "chargement FIRMS annoncé sans faux état vide",
       await waitFor(`document.getElementById("sourceStatusText").textContent.includes("Connexion") &&
         document.getElementById("feed").textContent.includes("Chargement") &&
+        document.getElementById("refreshTop").textContent.includes("Mise à jour") &&
         !document.getElementById("feed").textContent.includes("Aucune détection")`,page.cdp)
     );
     await waitFor("document.querySelectorAll('.feed-item').length===1",page.cdp);
+    assert(
+      "bouton d’actualisation restauré après chargement",
+      await evaluate(`document.getElementById("refreshTop").textContent.includes("Actualiser") &&
+        document.getElementById("refreshTop").getAttribute("aria-label")==="Actualiser la carte"`,page.cdp)
+    );
     await closePage(page,port);
 
     page=await openPage(baseUrl,port,scenario({
