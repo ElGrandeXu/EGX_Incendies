@@ -1,6 +1,8 @@
 # EGX Incendies
 
-EGX Incendies montre les détections thermiques par satellite autour de la ville de votre choix.
+EGX Incendies est une carte citoyenne gratuite et open source pour suivre les incendies en quasi temps réel grâce aux détections thermiques par satellite de NASA FIRMS. Elle aide à visualiser les feux de forêt potentiels en France et en Europe autour de la ville de votre choix, avec leur distance, leur ancienneté et les foyers probables.
+
+La carte présente aussi le vent, la direction possible des fumées et une estimation de la qualité de l’air. Elle complète l’information disponible, mais ne constitue pas une alerte incendie officielle en France ou en Europe et ne remplace jamais les autorités ou les services de secours.
 
 > [!NOTE]
 > La V2 est publiée avec trois évolutions : qualité de l’air estimée, champs MAP_KEY sans comportement de mot de passe et état explicite lorsqu’aucune détection n’est reçue.
